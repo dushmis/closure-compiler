@@ -17,7 +17,6 @@
 package com.google.javascript.jscomp;
 
 
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.rhino.Node;
@@ -36,9 +35,18 @@ import java.util.Deque;
 // TODO(nicksantos): A lot of this code is duplicated from
 // TypedScopeCreatorTest. We should create a common test harness for
 // assertions about type information.
-public class InferJSDocInfoTest extends CompilerTestCase {
+public final class InferJSDocInfoTest extends CompilerTestCase {
 
-  private Scope globalScope;
+  private static final String OBJECT_EXTERNS = ""
+        + "/**\n"
+        + " * Object.\n"
+        + " * @param {*=} x\n"
+        + " * @return {!Object}\n"
+        + " * @constructor\n"
+        + " */\n"
+        + "function Object(x) {};";
+
+  private TypedScope globalScope;
 
   @Override
   public void setUp() {
@@ -53,14 +61,14 @@ public class InferJSDocInfoTest extends CompilerTestCase {
   @Override
   protected CompilerOptions getOptions() {
     CompilerOptions options = super.getOptions();
-    options.ideMode = true;
+    options.setIdeMode(true);
     return options;
   }
 
   private final Callback callback = new AbstractPostOrderCallback() {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
-      Scope s = t.getScope();
+      TypedScope s = t.getTypedScope();
       if (s.isGlobal()) {
         globalScope = s;
       }
@@ -74,24 +82,22 @@ public class InferJSDocInfoTest extends CompilerTestCase {
       public void process(Node externs, Node root) {
         MemoizedScopeCreator scopeCreator =
             new MemoizedScopeCreator(new TypedScopeCreator(compiler));
-        Scope topScope = scopeCreator.createScope(root.getParent(), null);
+        TypedScope topScope = scopeCreator.createScope(root.getParent(), null);
         (new TypeInferencePass(
             compiler, compiler.getReverseAbstractInterpreter(),
             topScope, scopeCreator)).process(externs, root);
         NodeTraversal t = new NodeTraversal(
             compiler, callback, scopeCreator);
-        t.traverseRoots(Lists.newArrayList(externs, root));
+        t.traverseRoots(externs, root);
         (new InferJSDocInfo(compiler)).process(externs, root);
       }
     };
   }
 
   public void testNativeCtor() {
-    testSame(
-        "/** Object. \n * @param {*=} x \n * @constructor */ " +
-        "function Object(x) {};",
-        "var x = new Object();" +
-        "/** Another object. */ var y = new Object();", null);
+    testSame(OBJECT_EXTERNS,
+        "var x = new Object();"
+        + "/** Another object. */ var y = new Object();", null);
     assertEquals(
         "Object.",
         findGlobalNameType("x").getJSDocInfo().getBlockDescription());
@@ -104,14 +110,12 @@ public class InferJSDocInfoTest extends CompilerTestCase {
   }
 
   public void testStructuralFunctions() {
-    testSame(
-        "/** Object. \n * @param {*=} x \n * @constructor */ " +
-        "function Object(x) {};",
-        "/** Function. \n * @param {*} x */ " +
-        "function fn(x) {};" +
-        "var goog = {};" +
-        "/** Another object. \n * @type {Object} */ goog.x = new Object();" +
-        "/** Another function. \n * @param {number} x */ goog.y = fn;", null);
+    testSame(OBJECT_EXTERNS,
+        "/** Function. \n * @param {*} x */ "
+        + "function fn(x) {};"
+        + "var goog = {};"
+        + "/** Another object. \n * @type {Object} */ goog.x = new Object();"
+        + "/** Another function. \n * @param {number} x */ goog.y = fn;", null);
     assertEquals(
         "(Object|null)",
         globalScope.getVar("goog.x").getType().toString());
@@ -203,7 +207,7 @@ public class InferJSDocInfoTest extends CompilerTestCase {
     return findNameType(name, globalScope);
   }
 
-  private JSType findNameType(String name, Scope scope) {
+  private JSType findNameType(String name, TypedScope scope) {
     Node root = scope.getRootNode();
     Deque<Node> queue = new ArrayDeque<>();
     queue.push(root);

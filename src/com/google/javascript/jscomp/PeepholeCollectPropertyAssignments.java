@@ -29,8 +29,7 @@ import com.google.javascript.rhino.Token;
  * similarly for the object constructor.
  *
  */
-public class PeepholeCollectPropertyAssignments
-    extends AbstractPeepholeOptimization {
+final class PeepholeCollectPropertyAssignments extends AbstractPeepholeOptimization {
 
   @Override
   Node optimizeSubtree(Node subtree) {
@@ -120,11 +119,7 @@ public class PeepholeCollectPropertyAssignments
 
     // of a variable.
     Node obj = lhs.getFirstChild();
-    if (!obj.isName()) {
-      return false;
-    }
-
-    return true;
+    return obj.isName();
   }
 
   private boolean collectProperty(

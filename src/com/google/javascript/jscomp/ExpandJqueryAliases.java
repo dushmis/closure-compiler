@@ -18,14 +18,14 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -117,11 +117,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
 
   public boolean isJqueryExpandedEachCall(Node call, String qName) {
     Preconditions.checkArgument(call.isCall());
-    if (call.getFirstChild() != null &&
-        JQUERY_EXPANDED_EACH_NAME.equals(qName)) {
-      return true;
-    }
-    return false;
+    return call.getFirstChild() != null && JQUERY_EXPANDED_EACH_NAME.equals(qName);
   }
 
   @Override
@@ -306,8 +302,8 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
     }
 
     // Find all references to the callback function arguments
-    List<Node> keyNodeReferences = Lists.newArrayList();
-    List<Node> valueNodeReferences = Lists.newArrayList();
+    List<Node> keyNodeReferences = new ArrayList<>();
+    List<Node> valueNodeReferences = new ArrayList<>();
 
     NodeTraversal.traverse(compiler,
         NodeUtil.getFunctionBody(callbackFunction),
@@ -356,10 +352,10 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
       }
 
       // Keep track of the replaced nodes so we can reset the tree
-      List<Node> newKeys = Lists.newArrayList();
-      List<Node> newValues = Lists.newArrayList();
-      List<Node> origGetElems = Lists.newArrayList();
-      List<Node> newGetProps = Lists.newArrayList();
+      List<Node> newKeys = new ArrayList<>();
+      List<Node> newValues = new ArrayList<>();
+      List<Node> origGetElems = new ArrayList<>();
+      List<Node> newGetProps = new ArrayList<>();
 
       // Replace all of the key nodes with the prop name
       for (int j = 0; j < keyNodes.size(); j++) {
@@ -393,7 +389,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
           Node prop = ancestorClone.getChildAtIndex(1);
 
           if (prop.isString() &&
-            NodeUtil.isValidPropertyName(prop.getString())) {
+            NodeUtil.isValidPropertyName(LanguageMode.ECMASCRIPT3, prop.getString())) {
             Node target = ancestorClone.getFirstChild();
             Node newGetProp = IR.getprop(target.detachFromParent(),
                 prop.detachFromParent());
@@ -402,7 +398,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
             ancestor.getParent().replaceChild(ancestor, newGetProp);
           } else {
             if (prop.isString() &&
-                !NodeUtil.isValidPropertyName(prop.getString())) {
+                !NodeUtil.isValidPropertyName(LanguageMode.ECMASCRIPT3, prop.getString())) {
               t.report(n,
                   JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_ERROR,
                   prop.getString());

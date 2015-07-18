@@ -19,13 +19,14 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.Scope.Var;
-import com.google.javascript.jscomp.parsing.Comment;
+import com.google.javascript.jscomp.TypeValidator.TypeMismatch;
 import com.google.javascript.jscomp.parsing.Config;
+import com.google.javascript.jscomp.parsing.parser.trees.Comment;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 
 import java.util.List;
@@ -45,6 +46,8 @@ import javax.annotation.Nullable;
 public abstract class AbstractCompiler implements SourceExcerptProvider {
   static final DiagnosticType READ_ERROR = DiagnosticType.error(
       "JSC_READ_ERROR", "Cannot read: {0}");
+
+  boolean needsEs6Runtime = false;
 
   /**
    * Will be called before each pass runs.
@@ -104,15 +107,17 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    */
   public abstract JSTypeRegistry getTypeRegistry();
 
+  public abstract TypeIRegistry getTypeIRegistry();
+
   /**
-   * Gets a memoized scope creator with type information.
+   * Gets a memoized scope creator with type information. Only used by jsdev.
    */
   abstract ScopeCreator getTypedScopeCreator();
 
   /**
    * Gets the top scope.
    */
-  public abstract Scope getTopScope();
+  public abstract TypedScope getTopScope();
 
   /**
    * Report an error or warning.
@@ -166,9 +171,14 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   abstract Node getNodeForCodeInsertion(JSModule module);
 
   /**
-   * Gets the central registry of type violations.
+   * Only used by passes in the old type checker.
    */
   abstract TypeValidator getTypeValidator();
+
+  /**
+   * Gets the central registry of type violations.
+   */
+  abstract Iterable<TypeMismatch> getTypeMismatches();
 
   /**
    * Used only by the new type inference
@@ -195,7 +205,7 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   /**
    * Prints a node to source code.
    */
-  abstract String toSource(Node root);
+  public abstract String toSource(Node root);
 
   /**
    * Gets a default error reporter for injecting into Rhino.
@@ -258,11 +268,6 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   abstract boolean acceptEcmaScript5();
 
   /**
-   * @return Whether the compiler accepts `const' keyword.
-   */
-  abstract boolean acceptConstKeyword();
-
-  /**
    * Represents the different contexts for which the compiler could have
    * distinct configurations.
    */
@@ -279,21 +284,9 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   }
 
   /**
-   * Returns the parser configuration for the default context.
-   */
-  final Config getParserConfig() {
-    return getParserConfig(ConfigContext.DEFAULT);
-  }
-
-  /**
    * Returns the parser configuration for the specified context.
    */
   abstract Config getParserConfig(ConfigContext context);
-
-  /**
-   * Returns true if type checking is enabled.
-   */
-  abstract boolean isTypeCheckingEnabled();
 
   /**
    * Normalizes the types of AST nodes in the given tree, and
@@ -372,6 +365,8 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Returns the root node of the AST, which includes both externs and source.
    */
   abstract Node getRoot();
+
+  abstract CompilerOptions getOptions();
 
   /**
    * The language mode of the current root node. This will match the languageIn

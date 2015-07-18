@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Function;
@@ -24,10 +25,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.AbstractCommandLineRunner.FlagUsageException;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.rhino.Node;
 
 import junit.framework.TestCase;
@@ -35,6 +36,8 @@ import junit.framework.TestCase;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +46,7 @@ import java.util.Map;
  *
  * @author nicksantos@google.com (Nick Santos)
  */
-public class CommandLineRunnerTest extends TestCase {
+public final class CommandLineRunnerTest extends TestCase {
 
   private Compiler lastCompiler = null;
   private CommandLineRunner lastCommandLineRunner = null;
@@ -67,7 +70,7 @@ public class CommandLineRunnerTest extends TestCase {
     STAR
   }
 
-  private List<String> args = Lists.newArrayList();
+  private List<String> args = new ArrayList<>();
 
   /** Externs for the test */
   private static final List<SourceFile> DEFAULT_EXTERNS = ImmutableList.of(
@@ -113,7 +116,7 @@ public class CommandLineRunnerTest extends TestCase {
   public void setUp() throws Exception {
     super.setUp();
     externs = DEFAULT_EXTERNS;
-    filenames = Maps.newHashMap();
+    filenames = new HashMap<>();
     lastCompiler = null;
     lastArg = null;
     outReader = new ByteArrayOutputStream();
@@ -121,7 +124,7 @@ public class CommandLineRunnerTest extends TestCase {
     useStringComparison = false;
     useModules = ModulePattern.NONE;
     args.clear();
-    exitCodes = Lists.newArrayList();
+    exitCodes = new ArrayList<>();
   }
 
   @Override
@@ -160,6 +163,17 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("--jscomp_off=globalThis");
     args.add("--jscomp_warning=globalThis");
     test("function f() { this.a = 3; }", CheckGlobalThis.GLOBAL_THIS);
+  }
+
+  public void testWarningGuardWildcard1() {
+    args.add("--jscomp_warning=*");
+    test("function f() { this.a = 3; }", CheckGlobalThis.GLOBAL_THIS);
+  }
+
+  public void testWarningGuardWildcardOrdering() {
+    args.add("--jscomp_warning=*");
+    args.add("--jscomp_off=globalThis");
+    testSame("function f() { this.a = 3; }");
   }
 
   public void testSimpleModeLeavesUnusedParams() {
@@ -244,7 +258,6 @@ public class CommandLineRunnerTest extends TestCase {
 
   public void testTypedAdvanced() {
     args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
-    args.add("--use_types_for_optimization");
     test(
         "/** @constructor */\n" +
         "function Foo() {}\n" +
@@ -255,6 +268,26 @@ public class CommandLineRunnerTest extends TestCase {
         "new Foo().handle1(1, 2);\n" +
         "new Bar().handle1(1, 2);\n",
         "alert(2)");
+  }
+
+  public void testTypedDisabledAdvanced() {
+    args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
+    args.add("--use_types_for_optimization=false");
+    test(
+        "/** @constructor */\n"
+        + "function Foo() {}\n"
+        +"Foo.prototype.handle1 = function(x, y) { alert(y); };\n"
+        + "/** @constructor */\n"
+        + "function Bar() {}\n"
+        + "Bar.prototype.handle1 = function(x, y) {};\n"
+        + "new Foo().handle1(1, 2);\n"
+        + "new Bar().handle1(1, 2);\n",
+        "function a() {}\n"
+        + "a.prototype.a = function(d, c) { alert(c); };\n"
+        + "function b() {}\n"
+        + "b.prototype.a = function() {};\n"
+        + "(new a).a(1, 2);\n"
+        + "(new b).a(1, 2);");
   }
 
   public void testTypeCheckingOnWithVerbose() {
@@ -338,7 +371,7 @@ public class CommandLineRunnerTest extends TestCase {
 
   public void testDuplicateParams() {
     test("function f(a, a) {}", RhinoErrorReporter.DUPLICATE_PARAM);
-    assertTrue(lastCompiler.hasHaltingErrors());
+    assertThat(lastCompiler.hasHaltingErrors()).isTrue();
   }
 
   public void testDefineFlag() {
@@ -580,9 +613,13 @@ public class CommandLineRunnerTest extends TestCase {
 
   public void testHelpFlag() {
     args.add("--help");
-    assertFalse(
-        createCommandLineRunner(
-            new String[] {"function f() {}"}).shouldRunCompiler());
+    CommandLineRunner runner =
+        createCommandLineRunner(new String[] {"function f() {}"});
+    assertThat(runner.shouldRunCompiler()).isFalse();
+    assertThat(runner.hasErrors()).isFalse();
+    String output = new String(outReader.toByteArray(), UTF_8);
+    assertThat(output).contains(" --help ");
+    assertThat(output).contains(" --version ");
   }
 
   public void testHoistedFunction1() {
@@ -602,19 +639,19 @@ public class CommandLineRunnerTest extends TestCase {
     test(new String[] {code},
          new String[] {});
 
-    assertEquals(2, lastCompiler.getExternsForTesting().size());
+    assertThat(lastCompiler.getExternsForTesting()).hasSize(2);
 
     CompilerInput extern = lastCompiler.getExternsForTesting().get(1);
-    assertNull(extern.getModule());
-    assertTrue(extern.isExtern());
-    assertEquals(code, extern.getCode());
+    assertThat(extern.getModule()).isNull();
+    assertThat(extern.isExtern()).isTrue();
+    assertThat(extern.getCode()).isEqualTo(code);
 
-    assertEquals(1, lastCompiler.getInputsForTesting().size());
+    assertThat(lastCompiler.getInputsForTesting()).hasSize(1);
 
     CompilerInput input = lastCompiler.getInputsForTesting().get(0);
-    assertNotNull(input.getModule());
-    assertFalse(input.isExtern());
-    assertEquals("", input.getCode());
+    assertThat(input.getModule()).isNotNull();
+    assertThat(input.isExtern()).isFalse();
+    assertThat(input.getCode()).isEmpty();
   }
 
   public void testExternsLifting2() {
@@ -899,9 +936,8 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("/path/to/out.js");
     args.add("--create_source_map=%outname%.map");
     testSame("var x = 3;");
-    assertEquals("/path/to/out.js.map",
-        lastCommandLineRunner.expandSourceMapPath(
-            lastCompiler.getOptions(), null));
+    assertThat(lastCommandLineRunner.expandSourceMapPath(lastCompiler.getOptions(), null))
+        .isEqualTo("/path/to/out.js.map");
   }
 
   public void testSourceMapExpansion2() {
@@ -909,9 +945,8 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("--create_source_map=%outname%.map");
     args.add("--module_output_path_prefix=foo");
     testSame(new String[] {"var x = 3;", "var y = 5;"});
-    assertEquals("foo.map",
-        lastCommandLineRunner.expandSourceMapPath(
-            lastCompiler.getOptions(), null));
+    assertThat(lastCommandLineRunner.expandSourceMapPath(lastCompiler.getOptions(), null))
+        .isEqualTo("foo.map");
   }
 
   public void testSourceMapExpansion3() {
@@ -919,18 +954,17 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("--create_source_map=%outname%.map");
     args.add("--module_output_path_prefix=foo_");
     testSame(new String[] {"var x = 3;", "var y = 5;"});
-    assertEquals("foo_m0.js.map",
+    assertThat(
         lastCommandLineRunner.expandSourceMapPath(
-            lastCompiler.getOptions(),
-            lastCompiler.getModuleGraph().getRootModule()));
+            lastCompiler.getOptions(), lastCompiler.getModuleGraph().getRootModule()))
+        .isEqualTo("foo_m0.js.map");
   }
 
   public void testSourceMapFormat1() {
     args.add("--js_output_file");
     args.add("/path/to/out.js");
     testSame("var x = 3;");
-    assertEquals(SourceMap.Format.DEFAULT,
-        lastCompiler.getOptions().sourceMapFormat);
+    assertThat(lastCompiler.getOptions().sourceMapFormat).isEqualTo(SourceMap.Format.DEFAULT);
   }
 
   public void testSourceMapFormat2() {
@@ -938,8 +972,68 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("/path/to/out.js");
     args.add("--source_map_format=V3");
     testSame("var x = 3;");
-    assertEquals(SourceMap.Format.V3,
-        lastCompiler.getOptions().sourceMapFormat);
+    assertThat(lastCompiler.getOptions().sourceMapFormat).isEqualTo(SourceMap.Format.V3);
+  }
+
+  public void testSourceMapLocationsTranslations1() {
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--create_source_map=%outname%.map");
+    args.add("--source_map_location_mapping=foo/|http://bar");
+    testSame("var x = 3;");
+
+    List<LocationMapping> mappings = lastCompiler.getOptions()
+        .sourceMapLocationMappings;
+    assertThat(ImmutableSet.copyOf(mappings).toString())
+        .isEqualTo(ImmutableSet.of(new LocationMapping("foo/", "http://bar")).toString());
+  }
+
+  public void testSourceMapLocationsTranslations2() {
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--create_source_map=%outname%.map");
+    args.add("--source_map_location_mapping=foo/|http://bar");
+    args.add("--source_map_location_mapping=xxx/|http://yyy");
+    testSame("var x = 3;");
+
+    List<LocationMapping> mappings = lastCompiler.getOptions()
+        .sourceMapLocationMappings;
+    assertThat(ImmutableSet.copyOf(mappings).toString())
+        .isEqualTo(
+            ImmutableSet.of(new LocationMapping("foo/", "http://bar"), new LocationMapping(
+                                                                           "xxx/", "http://yyy"))
+                .toString());
+  }
+
+  public void testSourceMapLocationsTranslations3() {
+    // Prevents this from trying to load externs.zip
+    args.add("--use_only_custom_externs=true");
+
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--create_source_map=%outname%.map");
+    args.add("--source_map_location_mapping=foo/");
+
+    CommandLineRunner runner = createCommandLineRunner(new String[0]);
+    assertThat(runner.shouldRunCompiler()).isFalse();
+    assertThat(new String(errReader.toByteArray(), UTF_8))
+        .contains("Bad value for --source_map_location_mapping");
+  }
+
+  public void testSourceMapInputs() throws Exception {
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--source_map_input=input1|input1.sourcemap");
+    args.add("--source_map_input=input2|input2.sourcemap");
+    testSame("var x = 3;");
+
+    Map<String, SourceMapInput> inputMaps = lastCompiler.getOptions()
+        .inputSourceMaps;
+    assertThat(inputMaps).hasSize(2);
+    assertThat(inputMaps.get("input1").getOriginalPath())
+        .isEqualTo("input1.sourcemap");
+    assertThat(inputMaps.get("input2").getOriginalPath())
+        .isEqualTo("input2.sourcemap");
   }
 
   public void testModuleWrapperBaseNameExpansion() throws Exception {
@@ -954,15 +1048,15 @@ public class CommandLineRunnerTest extends TestCase {
     lastCommandLineRunner.writeModuleOutput(
         builder,
         lastCompiler.getModuleGraph().getRootModule());
-    assertEquals("var x=3; // m0.js\n", builder.toString());
+    assertThat(builder.toString()).isEqualTo("var x=3; // m0.js\n");
   }
 
   public void testCharSetExpansion() {
     testSame("");
-    assertEquals("US-ASCII", lastCompiler.getOptions().outputCharset);
+    assertThat(lastCompiler.getOptions().outputCharset).isEqualTo("US-ASCII");
     args.add("--charset=UTF-8");
     testSame("");
-    assertEquals("UTF-8", lastCompiler.getOptions().outputCharset);
+    assertThat(lastCompiler.getOptions().outputCharset).isEqualTo("UTF-8");
   }
 
   public void testChainModuleManifest() throws Exception {
@@ -973,19 +1067,18 @@ public class CommandLineRunnerTest extends TestCase {
     StringBuilder builder = new StringBuilder();
     lastCommandLineRunner.printModuleGraphManifestOrBundleTo(
         lastCompiler.getModuleGraph(), builder, true);
-    assertEquals(
-        "{m0}\n" +
-        "i0\n" +
-        "\n" +
-        "{m1:m0}\n" +
-        "i1\n" +
-        "\n" +
-        "{m2:m1}\n" +
-        "i2\n" +
-        "\n" +
-        "{m3:m2}\n" +
-        "i3\n",
-        builder.toString());
+    assertThat(builder.toString())
+        .isEqualTo("{m0}\n"
+            + "i0\n"
+            + "\n"
+            + "{m1:m0}\n"
+            + "i1\n"
+            + "\n"
+            + "{m2:m1}\n"
+            + "i2\n"
+            + "\n"
+            + "{m3:m2}\n"
+            + "i3\n");
   }
 
   public void testStarModuleManifest() throws Exception {
@@ -996,19 +1089,18 @@ public class CommandLineRunnerTest extends TestCase {
     StringBuilder builder = new StringBuilder();
     lastCommandLineRunner.printModuleGraphManifestOrBundleTo(
         lastCompiler.getModuleGraph(), builder, true);
-    assertEquals(
-        "{m0}\n" +
-        "i0\n" +
-        "\n" +
-        "{m1:m0}\n" +
-        "i1\n" +
-        "\n" +
-        "{m2:m0}\n" +
-        "i2\n" +
-        "\n" +
-        "{m3:m0}\n" +
-        "i3\n",
-        builder.toString());
+    assertThat(builder.toString())
+        .isEqualTo("{m0}\n"
+            + "i0\n"
+            + "\n"
+            + "{m1:m0}\n"
+            + "i1\n"
+            + "\n"
+            + "{m2:m0}\n"
+            + "i2\n"
+            + "\n"
+            + "{m3:m0}\n"
+            + "i3\n");
   }
 
   public void testOutputModuleGraphJson() throws Exception {
@@ -1018,50 +1110,47 @@ public class CommandLineRunnerTest extends TestCase {
 
     StringBuilder builder = new StringBuilder();
     lastCommandLineRunner.printModuleGraphJsonTo(builder);
-    assertTrue(builder.toString().contains("transitive-dependencies"));
+    assertThat(builder.toString()).contains("transitive-dependencies");
   }
 
   public void testVersionFlag() {
     args.add("--version");
-    assertFalse(
-        createCommandLineRunner(
-            new String[] {"function f() {}"}).shouldRunCompiler());
-    assertEquals(
-        0,
-        new String(outReader.toByteArray(), UTF_8).indexOf(
-            "Closure Compiler (http://github.com/google/closure-compiler)\n" +
-            "Version: "));
+    CommandLineRunner runner =
+        createCommandLineRunner(new String[] {"function f() {}"});
+    assertThat(runner.shouldRunCompiler()).isFalse();
+    assertThat(runner.hasErrors()).isFalse();
+    assertThat(
+        new String(outReader.toByteArray(), UTF_8)
+            .indexOf("Closure Compiler (http://github.com/google/closure-compiler)\n"
+                + "Version: ")).isEqualTo(0);
   }
 
   public void testVersionFlag2() {
     lastArg = "--version";
-    assertFalse(
-        createCommandLineRunner(
-            new String[] {"function f() {}"}).shouldRunCompiler());
-    assertEquals(
-        0,
-        new String(outReader.toByteArray(), UTF_8).indexOf(
-            "Closure Compiler (http://github.com/google/closure-compiler)\n" +
-            "Version: "));
+    CommandLineRunner runner =
+        createCommandLineRunner(new String[] {"function f() {}"});
+    assertThat(runner.shouldRunCompiler()).isFalse();
+    assertThat(runner.hasErrors()).isFalse();
+    assertThat(new String(outReader.toByteArray(), UTF_8))
+        .startsWith("Closure Compiler (http://github.com/google/closure-compiler)\nVersion: ");
   }
 
   public void testPrintAstFlag() {
     args.add("--print_ast=true");
     testSame("");
-    assertEquals(
-        "digraph AST {\n" +
-        "  node [color=lightblue2, style=filled];\n" +
-        "  node0 [label=\"BLOCK\"];\n" +
-        "  node1 [label=\"SCRIPT\"];\n" +
-        "  node0 -> node1 [weight=1];\n" +
-        "  node1 -> RETURN [label=\"UNCOND\", " +
-            "fontcolor=\"red\", weight=0.01, color=\"red\"];\n" +
-        "  node0 -> RETURN [label=\"SYN_BLOCK\", " +
-            "fontcolor=\"red\", weight=0.01, color=\"red\"];\n" +
-        "  node0 -> node1 [label=\"UNCOND\", " +
-            "fontcolor=\"red\", weight=0.01, color=\"red\"];\n" +
-        "}\n\n",
-        new String(outReader.toByteArray()));
+    assertThat(new String(outReader.toByteArray(), UTF_8))
+        .isEqualTo("digraph AST {\n"
+            + "  node [color=lightblue2, style=filled];\n"
+            + "  node0 [label=\"BLOCK\"];\n"
+            + "  node1 [label=\"SCRIPT\"];\n"
+            + "  node0 -> node1 [weight=1];\n"
+            + "  node1 -> RETURN [label=\"UNCOND\", "
+            + "fontcolor=\"red\", weight=0.01, color=\"red\"];\n"
+            + "  node0 -> RETURN [label=\"SYN_BLOCK\", "
+            + "fontcolor=\"red\", weight=0.01, color=\"red\"];\n"
+            + "  node0 -> node1 [label=\"UNCOND\", "
+            + "fontcolor=\"red\", weight=0.01, color=\"red\"];\n"
+            + "}\n\n");
   }
 
   public void testSyntheticExterns() {
@@ -1096,11 +1185,31 @@ public class CommandLineRunnerTest extends TestCase {
         CheckMissingReturn.MISSING_RETURN_STATEMENT);
   }
 
+  public void testChecksOnlySkipsOptimizations() {
+    args.add("--checks-only");
+    test("var foo = 1 + 1;",
+      "var foo = 1 + 1;");
+  }
+
+  public void testChecksOnlyWithParseError() {
+    args.add("--compilation_level=WHITESPACE_ONLY");
+    args.add("--checks-only");
+    test("val foo = 1;",
+      RhinoErrorReporter.PARSE_ERROR);
+  }
+
+  public void testChecksOnlyWithWarning() {
+    args.add("--checks-only");
+    args.add("--warning_level=VERBOSE");
+    test("/** @deprecated */function foo() {}; foo();",
+      CheckAccessControls.DEPRECATED_NAME);
+  }
+
   public void testGenerateExports() {
     args.add("--generate_exports=true");
     test("/** @export */ foo.prototype.x = function() {};",
         "foo.prototype.x=function(){};" +
-        "goog.exportSymbol(\"foo.prototype.x\",foo.prototype.x);");
+        "goog.exportProperty(foo.prototype,\"x\",foo.prototype.x);");
   }
 
   public void testDepreciationWithVerbose() {
@@ -1116,7 +1225,7 @@ public class CommandLineRunnerTest extends TestCase {
       "var a b;",
       "var b c;"
     });
-    assertEquals(2, compiler.getErrors().length);
+    assertThat(compiler.getErrors()).hasLength(2);
   }
 
   public void testES3ByDefault() {
@@ -1153,7 +1262,7 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("--language_in=ECMASCRIPT5_STRICT");
     Compiler compiler = compile(new String[] {"var x = f.function"});
     String outputSource = compiler.toSource();
-    assertEquals("'use strict'", outputSource.substring(0, 12));
+    assertThat(outputSource.substring(0, 12)).isEqualTo("'use strict'");
   }
 
   public void testES5StrictUseStrictMultipleInputs() {
@@ -1161,8 +1270,8 @@ public class CommandLineRunnerTest extends TestCase {
     Compiler compiler = compile(new String[] {"var x = f.function",
         "var y = f.function", "var z = f.function"});
     String outputSource = compiler.toSource();
-    assertEquals("'use strict'", outputSource.substring(0, 12));
-    assertEquals(outputSource.substring(13).indexOf("'use strict'"), -1);
+    assertThat(outputSource).startsWith("'use strict'");
+    assertThat(outputSource.substring(13)).doesNotContain("'use strict'");
   }
 
   public void testWithKeywordWithEs5ChecksOff() {
@@ -1180,8 +1289,9 @@ public class CommandLineRunnerTest extends TestCase {
     } catch (FlagUsageException e) {
       expectedMessage = e.getMessage();
     }
-    assertEquals(expectedMessage, "Bad --js flag. " +
-      "Manifest files cannot be generated when the input is from stdin.");
+    assertThat("Bad --js flag. "
+        + "Manifest files cannot be generated when the input is from stdin.")
+        .isEqualTo(expectedMessage);
   }
 
   public void testTransformAMD() {
@@ -1196,7 +1306,7 @@ public class CommandLineRunnerTest extends TestCase {
     setFilename(0, "foo/bar.js");
     String expected = "var module$foo$bar={test:1};";
     test("exports.test = 1", expected);
-    assertEquals(expected + "\n", outReader.toString());
+    assertThat(outReader.toString()).isEqualTo(expected + "\n");
   }
 
   public void testProcessCJSWithModuleOutput() {
@@ -1208,16 +1318,76 @@ public class CommandLineRunnerTest extends TestCase {
     test("exports.test = 1",
         "var module$foo$bar={test:1};");
     // With modules=auto no direct output is created.
-    assertEquals("", outReader.toString());
+    assertThat(outReader.toString()).isEmpty();
+  }
+
+  /**
+   * closure requires mixed with cjs, raised in
+   * https://github.com/google/closure-compiler/pull/630
+   * https://gist.github.com/sayrer/c4c4ce0c1748573f863e
+   */
+  public void testProcessCJSWithClosureRequires() {
+    args.add("--process_common_js_modules");
+    args.add("--common_js_entry_module=app.js");
+    args.add("--manage_closure_dependencies");
+    setFilename(0, "base.js");
+    setFilename(1, "array.js");
+    setFilename(2, "Baz.js");
+    setFilename(3, "app.js");
+    test(new String[] {
+           "/** @provideGoog */\n" +
+           "/** @const */ var goog = goog || {};\n" +
+           "var COMPILED = false;\n" +
+           "goog.provide = function (arg) {};\n" +
+           "goog.require = function (arg) {};\n",
+
+           "goog.provide('goog.array');\n",
+
+           "goog.require('goog.array');\n" +
+           "function Baz() {}\n" +
+           "Baz.prototype = {\n" +
+           "  baz: function() {\n" +
+           "    return goog.array.last(['asdf','asd','baz']);\n" +
+           "  },\n" +
+           "  bar: function () {\n" +
+           "    return 4 + 4;\n" +
+           "  }\n" +
+           "}\n" +
+           "module.exports = Baz;",
+
+           "var Baz = require('./Baz');\n" +
+           "var baz = new Baz();\n" +
+           "console.log(baz.baz());\n" +
+           "console.log(baz.bar());\n"
+         },
+         new String[] {
+           "var goog=goog||{},COMPILED=!1;" +
+           "goog.provide=function(a){};goog.require=function(a){};",
+
+           "goog.array={};",
+
+           "function Baz$$module$Baz(){}" +
+           "Baz$$module$Baz.prototype={" +
+           "  baz:function(){return goog.array.last(['asdf','asd','baz'])}," +
+           "  bar:function(){return 8}" +
+           "};" +
+           "var module$Baz=Baz$$module$Baz;",
+
+           "var module$app={}," +
+           "    Baz$$module$app=module$Baz," +
+           "    baz$$module$app=new Baz$$module$app;" +
+           "console.log(baz$$module$app.baz());" +
+           "console.log(baz$$module$app.bar())"
+         });
   }
 
   public void testFormattingSingleQuote() {
     testSame("var x = '';");
-    assertEquals("var x=\"\";", lastCompiler.toSource());
+    assertThat(lastCompiler.toSource()).isEqualTo("var x=\"\";");
 
     args.add("--formatting=SINGLE_QUOTES");
     testSame("var x = '';");
-    assertEquals("var x='';", lastCompiler.toSource());
+    assertThat(lastCompiler.toSource()).isEqualTo("var x='';");
   }
 
   public void testTransformAMDAndProcessCJS() {
@@ -1251,9 +1421,10 @@ public class CommandLineRunnerTest extends TestCase {
     // ensure that the compiler displays an error and exits.
     // See github issue 123
     args.add("--output_wrapper=output");
-    assertFalse(
-        createCommandLineRunner(
-            new String[] {"function f() {}"}).shouldRunCompiler());
+    CommandLineRunner runner =
+        createCommandLineRunner(new String[] {"function f() {}"});
+    assertThat(runner.shouldRunCompiler()).isFalse();
+    assertThat(runner.hasErrors()).isTrue();
   }
 
   /* Helper functions */
@@ -1294,13 +1465,13 @@ public class CommandLineRunnerTest extends TestCase {
           "Warnings: \n" + Joiner.on("\n").join(compiler.getWarnings()),
           0, compiler.getErrors().length + compiler.getWarnings().length);
     } else {
-      assertEquals(1, compiler.getWarnings().length);
-      assertEquals(warning, compiler.getWarnings()[0].getType());
+      assertThat(compiler.getWarnings()).hasLength(1);
+      assertThat(compiler.getWarnings()[0].getType()).isEqualTo(warning);
     }
 
     Node root = compiler.getRoot().getLastChild();
     if (useStringComparison) {
-      assertEquals(Joiner.on("").join(compiled), compiler.toSource());
+      assertThat(compiler.toSource()).isEqualTo(Joiner.on("").join(compiled));
     } else {
       Node expectedRoot = parse(compiled);
       String explanation = expectedRoot.checkTreeEquals(root);
@@ -1331,17 +1502,17 @@ public class CommandLineRunnerTest extends TestCase {
         "\nWarnings: \n" + Joiner.on("\n").join(compiler.getWarnings()),
         1, compiler.getErrors().length + compiler.getWarnings().length);
 
-    assertFalse(exitCodes.isEmpty());
+    assertThat(exitCodes).isNotEmpty();
     int lastExitCode = exitCodes.get(exitCodes.size() - 1);
 
     if (compiler.getErrors().length > 0) {
-      assertEquals(1, compiler.getErrors().length);
-      assertEquals(warning, compiler.getErrors()[0].getType());
-      assertEquals(1, lastExitCode);
+      assertThat(compiler.getErrors()).hasLength(1);
+      assertThat(compiler.getErrors()[0].getType()).isEqualTo(warning);
+      assertThat(lastExitCode).isEqualTo(1);
     } else {
-      assertEquals(1, compiler.getWarnings().length);
-      assertEquals(warning, compiler.getWarnings()[0].getType());
-      assertEquals(0, lastExitCode);
+      assertThat(compiler.getWarnings()).hasLength(1);
+      assertThat(compiler.getWarnings()[0].getType()).isEqualTo(warning);
+      assertThat(lastExitCode).isEqualTo(0);
     }
   }
 
@@ -1371,23 +1542,26 @@ public class CommandLineRunnerTest extends TestCase {
 
   private Compiler compile(String[] original) {
     CommandLineRunner runner = createCommandLineRunner(original);
-    assertTrue(new String(errReader.toByteArray()), runner.shouldRunCompiler());
+    if (!runner.shouldRunCompiler()) {
+      assertThat(runner.hasErrors()).isTrue();
+      fail(new String(errReader.toByteArray(), UTF_8));
+    }
     Supplier<List<SourceFile>> inputsSupplier = null;
     Supplier<List<JSModule>> modulesSupplier = null;
 
     if (useModules == ModulePattern.NONE) {
-      List<SourceFile> inputs = Lists.newArrayList();
+      List<SourceFile> inputs = new ArrayList<>();
       for (int i = 0; i < original.length; i++) {
         inputs.add(SourceFile.fromCode(getFilename(i), original[i]));
       }
       inputsSupplier = Suppliers.ofInstance(inputs);
     } else if (useModules == ModulePattern.STAR) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.newArrayList(
+          ImmutableList.copyOf(
               CompilerTestCase.createModuleStar(original)));
     } else if (useModules == ModulePattern.CHAIN) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.newArrayList(
+          ImmutableList.copyOf(
               CompilerTestCase.createModuleChain(original)));
     } else {
       throw new IllegalArgumentException("Unknown module type: " + useModules);
@@ -1413,7 +1587,7 @@ public class CommandLineRunnerTest extends TestCase {
     String[] argStrings = args.toArray(new String[] {});
     CommandLineRunner runner = new CommandLineRunner(argStrings);
     Compiler compiler = runner.createCompiler();
-    List<SourceFile> inputs = Lists.newArrayList();
+    List<SourceFile> inputs = new ArrayList<>();
     for (int i = 0; i < original.length; i++) {
       inputs.add(SourceFile.fromCode(getFilename(i), original[i]));
     }
@@ -1436,6 +1610,8 @@ public class CommandLineRunnerTest extends TestCase {
     if (filenames.isEmpty()) {
       return "input" + i;
     }
-    return filenames.get(i);
+    String name = filenames.get(i);
+    Preconditions.checkState(name != null && !name.isEmpty());
+    return name;
   }
 }

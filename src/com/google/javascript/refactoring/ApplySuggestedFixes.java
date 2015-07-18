@@ -16,15 +16,20 @@
 
 package com.google.javascript.refactoring;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.SetMultimap;
+import com.google.common.io.Files;
 
-import java.util.Collections;
+import java.io.File;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +50,30 @@ public final class ApplySuggestedFixes {
           return replacement.getLength();
         }
       }));
+
+
+  /**
+   * Applies the provided set of suggested fixes to the files listed in the suggested fixes.
+   * The fixes can be provided in any order, but they may not have any overlapping modifications
+   * for the same file.
+   */
+  public static void applySuggestedFixesToFiles(Iterable<SuggestedFix> fixes)
+      throws IOException {
+    Set<String> filenames = new HashSet<>();
+    for (SuggestedFix fix : fixes) {
+      filenames.addAll(fix.getReplacements().keySet());
+    }
+
+    Map<String, String> filenameToCodeMap = new HashMap<>();
+    for (String filename : filenames) {
+      filenameToCodeMap.put(filename, Files.toString(new File(filename), UTF_8));
+    }
+
+    Map<String, String> newCode = applySuggestedFixesToCode(fixes, filenameToCodeMap);
+    for (Map.Entry<String, String> entry : newCode.entrySet()) {
+      Files.write(entry.getValue(), new File(entry.getKey()), UTF_8);
+    }
+  }
 
   /**
    * Applies the provided set of suggested fixes to the provided code and returns the new code.
@@ -79,18 +108,17 @@ public final class ApplySuggestedFixes {
    * The code replacements may not have any overlap.
    */
   public static String applyCodeReplacements(Iterable<CodeReplacement> replacements, String code) {
-    List<CodeReplacement> sortedReplacements = Lists.newArrayList(replacements);
-    Collections.sort(sortedReplacements, ORDER_CODE_REPLACEMENTS);
+    List<CodeReplacement> sortedReplacements = ORDER_CODE_REPLACEMENTS.sortedCopy(replacements);
     validateNoOverlaps(sortedReplacements);
 
     StringBuilder sb = new StringBuilder();
     int lastIndex = 0;
     for (CodeReplacement replacement : sortedReplacements) {
-      sb.append(code.substring(lastIndex, replacement.getStartPosition()));
+      sb.append(code, lastIndex, replacement.getStartPosition());
       sb.append(replacement.getNewContent());
       lastIndex = replacement.getStartPosition() + replacement.getLength();
     }
-    if (lastIndex <= sb.length()) {
+    if (lastIndex <= code.length()) {
       sb.append(code.substring(lastIndex));
     }
     return sb.toString();

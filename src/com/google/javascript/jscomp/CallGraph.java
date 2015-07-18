@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.graph.DiGraph;
@@ -29,6 +28,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
 
@@ -54,10 +54,11 @@ import java.util.Map;
  * return true.
  *
  * <p>TODO(dcc): Have CallGraph (optionally?) include functions for externs.
+ * <p>TODO(huajiewu): Add support of tagged template in call graph.
  *
  * @author dcc@google.com (Devin Coughlin)
  */
-public class CallGraph implements CompilerPass {
+public final class CallGraph implements CompilerPass {
   private final AbstractCompiler compiler;
 
   /**
@@ -118,8 +119,8 @@ public class CallGraph implements CompilerPass {
     this.computeForwardGraph = computeForwardGraph;
     this.computeBackwardGraph = computeBackwardGraph;
 
-    callsitesByNode = Maps.newLinkedHashMap();
-    functionsByNode = Maps.newLinkedHashMap();
+    callsitesByNode = new LinkedHashMap<>();
+    functionsByNode = new LinkedHashMap<>();
   }
 
   /**
@@ -135,10 +136,9 @@ public class CallGraph implements CompilerPass {
    */
   @Override
   public void process(Node externsRoot, Node jsRoot) {
-    Preconditions.checkState(alreadyRun == false);
+    Preconditions.checkState(!alreadyRun);
 
-    DefinitionProvider definitionProvider =
-        constructDefinitionProvider(externsRoot, jsRoot);
+    DefinitionProvider definitionProvider = constructDefinitionProvider(externsRoot, jsRoot);
 
     createFunctionsAndCallsites(jsRoot, definitionProvider);
 
@@ -541,7 +541,7 @@ public class CallGraph implements CompilerPass {
    * A Function knows how to get its AST node and what Callsites
    * it contains.
    */
-  public class Function {
+  public final class Function {
 
     private final Node astNode;
 
@@ -669,7 +669,7 @@ public class CallGraph implements CompilerPass {
    * A Callsite knows how to get its AST node, what its containing
    * Function is, and what its target Functions are.
    */
-  public class Callsite {
+  public final class Callsite {
     private final Node astNode;
 
     private boolean hasUnknownTarget = false;

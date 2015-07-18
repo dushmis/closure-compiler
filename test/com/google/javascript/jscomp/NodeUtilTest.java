@@ -16,10 +16,12 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -29,17 +31,18 @@ import com.google.javascript.rhino.jstype.TernaryValue;
 import junit.framework.TestCase;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * Tests for NodeUtil
  */
-public class NodeUtilTest extends TestCase {
+public final class NodeUtilTest extends TestCase {
 
   private static Node parse(String js) {
     Compiler compiler = new Compiler();
     compiler.initCompilerOptionsIfTesting();
-    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT5);
+    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
     Node n = compiler.parseTestCode(js);
     assertEquals(0, compiler.getErrorCount());
     return n;
@@ -110,6 +113,13 @@ public class NodeUtilTest extends TestCase {
     // Known but getBooleanValue return false for expressions with side-effects
     assertPureBooleanUnknown("{a:foo()}");
     assertPureBooleanUnknown("[foo()]");
+
+    assertPureBooleanTrue("`definiteLength`");
+    assertPureBooleanFalse("``");
+    assertPureBooleanUnknown("`${indefinite}Length`");
+
+    assertPureBooleanTrue("class Klass{}");
+
   }
 
   private void assertPureBooleanTrue(String val) {
@@ -210,11 +220,11 @@ public class NodeUtilTest extends TestCase {
     assertEquals("0", NodeUtil.getStringValue(getNode("'0'")));
     assertEquals(null, NodeUtil.getStringValue(getNode("/a/")));
     assertEquals("[object Object]", NodeUtil.getStringValue(getNode("{}")));
-    assertEquals("", NodeUtil.getStringValue(getNode("[]")));
+    assertThat(NodeUtil.getStringValue(getNode("[]"))).isEmpty();
     assertEquals("false", NodeUtil.getStringValue(getNode("false")));
     assertEquals("null", NodeUtil.getStringValue(getNode("null")));
     assertEquals("0", NodeUtil.getStringValue(getNode("0")));
-    assertEquals("", NodeUtil.getStringValue(getNode("''")));
+    assertThat(NodeUtil.getStringValue(getNode("''"))).isEmpty();
     assertEquals("undefined", NodeUtil.getStringValue(getNode("undefined")));
     assertEquals("undefined", NodeUtil.getStringValue(getNode("void 0")));
     assertEquals("undefined", NodeUtil.getStringValue(getNode("void foo()")));
@@ -225,11 +235,11 @@ public class NodeUtilTest extends TestCase {
   }
 
   public void testGetArrayStringValue() {
-    assertEquals("", NodeUtil.getStringValue(getNode("[]")));
-    assertEquals("", NodeUtil.getStringValue(getNode("['']")));
-    assertEquals("", NodeUtil.getStringValue(getNode("[null]")));
-    assertEquals("", NodeUtil.getStringValue(getNode("[undefined]")));
-    assertEquals("", NodeUtil.getStringValue(getNode("[void 0]")));
+    assertThat(NodeUtil.getStringValue(getNode("[]"))).isEmpty();
+    assertThat(NodeUtil.getStringValue(getNode("['']"))).isEmpty();
+    assertThat(NodeUtil.getStringValue(getNode("[null]"))).isEmpty();
+    assertThat(NodeUtil.getStringValue(getNode("[undefined]"))).isEmpty();
+    assertThat(NodeUtil.getStringValue(getNode("[void 0]"))).isEmpty();
     assertEquals("NaN", NodeUtil.getStringValue(getNode("[NaN]")));
     assertEquals(",", NodeUtil.getStringValue(getNode("[,'']")));
     assertEquals(",,", NodeUtil.getStringValue(getNode("[[''],[''],['']]")));
@@ -382,6 +392,15 @@ public class NodeUtilTest extends TestCase {
     assertSideEffect(false, "a ? c : d");
     assertSideEffect(false, "'1' + navigator.userAgent");
 
+    assertSideEffect(false, "`template`");
+    assertSideEffect(false, "`template${name}`");
+    assertSideEffect(false, "`${name}template`");
+    assertSideEffect(true, "`${naming()}template`");
+    assertSideEffect(true, "templateFunction`template`");
+    assertSideEffect(true, "st = `${name}template`");
+    assertSideEffect(true, "tempFunc = templateFunction`template`");
+
+
     assertSideEffect(false, "new RegExp('foobar', 'i')");
     assertSideEffect(true, "new RegExp(SomethingWacky(), 'i')");
     assertSideEffect(false, "new Array()");
@@ -506,7 +525,7 @@ public class NodeUtilTest extends TestCase {
     assertMutableState(false, "a");
     assertMutableState(true, "[b, c [d, [e]]]");
     assertMutableState(true, "({a: x, b: y, c: z})");
-    // Note: RegExp objects are not immutable,  for instance, the exec
+    // Note: RegExp objects are not immutable, for instance, the exec
     // method maintains state for "global" searches.
     assertMutableState(true, "/abc/gi");
     assertMutableState(false, "'a'");
@@ -623,6 +642,9 @@ public class NodeUtilTest extends TestCase {
     assertFalse(NodeUtil.referencesThis(n));
     assertFalse(NodeUtil.referencesThis(
         parse("(b?foo():null)")));
+
+    assertTrue(NodeUtil.referencesThis(parse("()=>this")));
+    assertTrue(NodeUtil.referencesThis(parse("() => { () => alert(this); }")));
   }
 
   public void testGetNodeTypeReferenceCount() {
@@ -675,25 +697,25 @@ public class NodeUtilTest extends TestCase {
   }
 
   public void testGetVarsDeclaredInBranch() {
-    assertNodeNames(Sets.newHashSet("foo"),
+    assertNodeNames(ImmutableSet.of("foo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var foo;")));
-    assertNodeNames(Sets.newHashSet("foo", "goo"),
+    assertNodeNames(ImmutableSet.of("foo", "goo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var foo,goo;")));
-    assertNodeNames(Sets.<String>newHashSet(),
+    assertNodeNames(ImmutableSet.<String>of(),
         NodeUtil.getVarsDeclaredInBranch(
             parse("foo();")));
-    assertNodeNames(Sets.<String>newHashSet(),
+    assertNodeNames(ImmutableSet.<String>of(),
         NodeUtil.getVarsDeclaredInBranch(
             parse("function f(){var foo;}")));
-    assertNodeNames(Sets.newHashSet("goo"),
+    assertNodeNames(ImmutableSet.of("goo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var goo;function f(){var foo;}")));
   }
 
   private void assertNodeNames(Set<String> nodeNames, Collection<Node> nodes) {
-    Set<String> actualNames = Sets.newHashSet();
+    Set<String> actualNames = new HashSet<>();
     for (Node node : nodes) {
       actualNames.add(node.getString());
     }
@@ -1516,16 +1538,79 @@ public class NodeUtilTest extends TestCase {
     assertTrue(NodeUtil.mayBeString(getNode("(1+[])")));
   }
 
+  public void test1() {
+    assertFalse(NodeUtil.isStringResult(getNode("a+b")));
+  }
+
+  public void testIsStringResult() {
+    assertFalse(NodeUtil.isStringResult(getNode("1")));
+    assertFalse(NodeUtil.isStringResult(getNode("true")));
+    assertFalse(NodeUtil.isStringResult(getNode("+true")));
+    assertFalse(NodeUtil.isStringResult(getNode("+1")));
+    assertFalse(NodeUtil.isStringResult(getNode("-1")));
+    assertFalse(NodeUtil.isStringResult(getNode("-Infinity")));
+    assertFalse(NodeUtil.isStringResult(getNode("Infinity")));
+    assertFalse(NodeUtil.isStringResult(getNode("NaN")));
+    assertFalse(NodeUtil.isStringResult(getNode("undefined")));
+    assertFalse(NodeUtil.isStringResult(getNode("void 0")));
+    assertFalse(NodeUtil.isStringResult(getNode("null")));
+
+    assertFalse(NodeUtil.isStringResult(getNode("a << b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a >> b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a >>> b")));
+
+    assertFalse(NodeUtil.isStringResult(getNode("a == b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a != b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a === b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a !== b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a < b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a > b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a <= b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a >= b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a in b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a instanceof b")));
+
+    assertTrue(NodeUtil.isStringResult(getNode("'a'")));
+    assertTrue(NodeUtil.isStringResult(getNode("'a'+b")));
+    assertTrue(NodeUtil.isStringResult(getNode("a+'b'")));
+    assertFalse(NodeUtil.isStringResult(getNode("a+b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a()")));
+    assertFalse(NodeUtil.isStringResult(getNode("''.a")));
+    assertFalse(NodeUtil.isStringResult(getNode("a.b")));
+    assertFalse(NodeUtil.isStringResult(getNode("a.b()")));
+    assertFalse(NodeUtil.isStringResult(getNode("a().b()")));
+    assertFalse(NodeUtil.isStringResult(getNode("new a()")));
+
+    // These can't be strings but they aren't handled yet.
+    assertFalse(NodeUtil.isStringResult(getNode("1 && 2")));
+    assertFalse(NodeUtil.isStringResult(getNode("1 || 2")));
+    assertFalse(NodeUtil.isStringResult(getNode("1 ? 2 : 3")));
+    assertFalse(NodeUtil.isStringResult(getNode("1,2")));
+    assertFalse(NodeUtil.isStringResult(getNode("a=1")));
+    assertFalse(NodeUtil.isStringResult(getNode("1+1")));
+    assertFalse(NodeUtil.isStringResult(getNode("true+true")));
+    assertFalse(NodeUtil.isStringResult(getNode("null+null")));
+    assertFalse(NodeUtil.isStringResult(getNode("NaN+NaN")));
+
+    // These are not strings but they aren't primitives either
+    assertFalse(NodeUtil.isStringResult(getNode("([1,2])")));
+    assertFalse(NodeUtil.isStringResult(getNode("({a:1})")));
+    assertFalse(NodeUtil.isStringResult(getNode("({}+1)")));
+    assertFalse(NodeUtil.isStringResult(getNode("(1+{})")));
+    assertFalse(NodeUtil.isStringResult(getNode("([]+1)")));
+    assertFalse(NodeUtil.isStringResult(getNode("(1+[])")));
+  }
+
   public void testValidNames() {
-    assertTrue(NodeUtil.isValidPropertyName("a"));
-    assertTrue(NodeUtil.isValidPropertyName("a3"));
-    assertFalse(NodeUtil.isValidPropertyName("3a"));
-    assertFalse(NodeUtil.isValidPropertyName("a."));
-    assertFalse(NodeUtil.isValidPropertyName(".a"));
-    assertFalse(NodeUtil.isValidPropertyName("a.b"));
-    assertFalse(NodeUtil.isValidPropertyName("true"));
-    assertFalse(NodeUtil.isValidPropertyName("a.true"));
-    assertFalse(NodeUtil.isValidPropertyName("a..b"));
+    assertTrue(isValidPropertyName("a"));
+    assertTrue(isValidPropertyName("a3"));
+    assertFalse(isValidPropertyName("3a"));
+    assertFalse(isValidPropertyName("a."));
+    assertFalse(isValidPropertyName(".a"));
+    assertFalse(isValidPropertyName("a.b"));
+    assertFalse(isValidPropertyName("true"));
+    assertFalse(isValidPropertyName("a.true"));
+    assertFalse(isValidPropertyName("a..b"));
 
     assertTrue(NodeUtil.isValidSimpleName("a"));
     assertTrue(NodeUtil.isValidSimpleName("a3"));
@@ -1537,15 +1622,15 @@ public class NodeUtilTest extends TestCase {
     assertFalse(NodeUtil.isValidSimpleName("a.true"));
     assertFalse(NodeUtil.isValidSimpleName("a..b"));
 
-    assertTrue(NodeUtil.isValidQualifiedName("a"));
-    assertTrue(NodeUtil.isValidQualifiedName("a3"));
-    assertFalse(NodeUtil.isValidQualifiedName("3a"));
-    assertFalse(NodeUtil.isValidQualifiedName("a."));
-    assertFalse(NodeUtil.isValidQualifiedName(".a"));
-    assertTrue(NodeUtil.isValidQualifiedName("a.b"));
-    assertFalse(NodeUtil.isValidQualifiedName("true"));
-    assertFalse(NodeUtil.isValidQualifiedName("a.true"));
-    assertFalse(NodeUtil.isValidQualifiedName("a..b"));
+    assertTrue(isValidQualifiedName("a"));
+    assertTrue(isValidQualifiedName("a3"));
+    assertFalse(isValidQualifiedName("3a"));
+    assertFalse(isValidQualifiedName("a."));
+    assertFalse(isValidQualifiedName(".a"));
+    assertTrue(isValidQualifiedName("a.b"));
+    assertFalse(isValidQualifiedName("true"));
+    assertFalse(isValidQualifiedName("a.true"));
+    assertFalse(isValidQualifiedName("a..b"));
   }
 
   public void testGetNearestFunctionName() {
@@ -1642,9 +1727,12 @@ public class NodeUtilTest extends TestCase {
     assertFalse(executedOnceTestCase("if (1) { try {} finally {x} }"));
   }
 
-  public void testNewQualifiedNameNode1() {
-    Node actual = NodeUtil.newQualifiedNameNode(
-        new GoogleCodingConvention(), "ns.prop");
+  public void testNewQName1() {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = new CompilerOptions();
+    options.setCodingConvention(new GoogleCodingConvention());
+    compiler.init(ImmutableList.<SourceFile>of(), ImmutableList.<SourceFile>of(), options);
+    Node actual = NodeUtil.newQName(compiler, "ns.prop");
     Node expected = IR.getprop(
         IR.name("ns"),
         IR.string("prop"));
@@ -1652,8 +1740,11 @@ public class NodeUtilTest extends TestCase {
   }
 
   public void testNewQualifiedNameNode2() {
-    Node actual = NodeUtil.newQualifiedNameNode(
-        new GoogleCodingConvention(), "this.prop");
+    Compiler compiler = new Compiler();
+    CompilerOptions options = new CompilerOptions();
+    options.setCodingConvention(new GoogleCodingConvention());
+    compiler.init(ImmutableList.<SourceFile>of(), ImmutableList.<SourceFile>of(), options);
+    Node actual = NodeUtil.newQName(compiler, "this.prop");
     Node expected = IR.getprop(
         IR.thisNode(),
         IR.string("prop"));
@@ -1712,5 +1803,13 @@ public class NodeUtilTest extends TestCase {
       }
     }
     return null;
+  }
+
+  static boolean isValidPropertyName(String s) {
+    return NodeUtil.isValidPropertyName(LanguageMode.ECMASCRIPT3, s);
+  }
+
+  static boolean isValidQualifiedName(String s) {
+    return NodeUtil.isValidQualifiedName(LanguageMode.ECMASCRIPT3, s);
   }
 }

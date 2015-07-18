@@ -17,6 +17,8 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
+import com.google.javascript.jscomp.SyntacticScopeCreator.DefaultRedeclarationHandler;
+import com.google.javascript.jscomp.SyntacticScopeCreator.RedeclarationHandler;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -28,6 +30,7 @@ import com.google.javascript.rhino.Token;
  *
  * <p>This implementation is not thread-safe.</p>
  *
+ * @author moz@google.com (Michael Zhou)
  */
 class Es6SyntacticScopeCreator implements ScopeCreator {
   private final AbstractCompiler compiler;
@@ -184,15 +187,14 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
 
       case Token.CATCH:
         Preconditions.checkState(n.getChildCount() == 2);
-        Preconditions.checkState(n.getFirstChild().isName());
         // the first child is the catch var and the second child
         // is the code block
 
-        final Node var = n.getFirstChild();
-        final Node block = var.getNext();
+        final Node exception = n.getFirstChild();
+        final Node block = exception.getNext();
 
         if (isNodeAtCurrentLexicalScope(n)) {
-          declareVar(var);
+          declareLHS(scope, exception);
         }
         scanVars(block);
         return;  // only one child to scan
@@ -213,23 +215,6 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         child = next;
       }
     }
-  }
-
-  /**
-   * Interface for injectable duplicate handling.
-   */
-  interface RedeclarationHandler {
-    void onRedeclaration(
-        Scope s, String name, Node n, CompilerInput input);
-  }
-
-  /**
-   * The default handler for duplicate declarations.
-   */
-  private static class DefaultRedeclarationHandler implements RedeclarationHandler {
-    @Override
-    public void onRedeclaration(
-        Scope s, String name, Node n, CompilerInput input) {}
   }
 
   private void declareVar(Node n) {
@@ -257,21 +242,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     if (s.isDeclared(name, false) || (s.isLocal() && name.equals(ARGUMENTS))) {
       redeclarationHandler.onRedeclaration(s, name, n, input);
     } else {
-      s.declare(name, n, null, input);
+      s.declare(name, n, input);
     }
-  }
-
-
-  /**
-   * Generates an untyped global scope from the root of AST of compiler (which
-   * includes externs).
-   *
-   * @param compiler The compiler for which the scope is generated.
-   * @return The new untyped global scope generated as a result of this call.
-   */
-  static Scope generateUntypedTopScope(AbstractCompiler compiler) {
-    return new Es6SyntacticScopeCreator(compiler).createScope(compiler.getRoot(),
-        null);
   }
 
   /**

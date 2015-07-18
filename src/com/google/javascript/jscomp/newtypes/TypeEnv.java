@@ -16,7 +16,7 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
@@ -30,7 +30,7 @@ import java.util.Map;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class TypeEnv {
+public final class TypeEnv {
   private final PersistentMap<String, JSType> typeMap;
 
   // Above this threshold, the type env keeps track of which variables have
@@ -148,7 +148,7 @@ public class TypeEnv {
 
   @Override
   public String toString() {
-    Objects.ToStringHelper helper = Objects.toStringHelper(this.getClass());
+    MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     for (String key : typeMap.keySet()) {
       helper.add(key, getType(key));
     }

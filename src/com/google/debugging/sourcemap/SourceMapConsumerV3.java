@@ -17,15 +17,14 @@
 package com.google.debugging.sourcemap;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.debugging.sourcemap.Base64VLQ.CharIterator;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping.Builder;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,7 +32,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -42,7 +41,7 @@ import java.util.Map;
  * http://code.google.com/p/closure-compiler/wiki/SourceMaps
  * @author johnlenz@google.com (John Lenz)
  */
-public class SourceMapConsumerV3 implements SourceMapConsumer,
+public final class SourceMapConsumerV3 implements SourceMapConsumer,
     SourceMappingReversable {
   static final int UNMAPPED = -1;
 
@@ -55,7 +54,7 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
   private Map<String, Map<Integer, Collection<OriginalMapping>>>
       reverseSourceMapping;
   private String sourceRoot;
-  private Map<String, Object> extensions = Maps.newLinkedHashMap();
+  private Map<String, Object> extensions = new LinkedHashMap<>();
 
 
   public SourceMapConsumerV3() {
@@ -83,9 +82,9 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
   public void parse(String contents, SourceMapSupplier sectionSupplier)
       throws SourceMapParseException {
     try {
-      JSONObject sourceMapRoot = new JSONObject(contents);
+      JsonObject sourceMapRoot = new Gson().fromJson(contents, JsonObject.class);
       parse(sourceMapRoot, sectionSupplier);
-    } catch (JSONException ex) {
+    } catch (JsonParseException ex) {
       throw new SourceMapParseException("JSON parse exception: " + ex);
     }
   }
@@ -93,24 +92,24 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
   /**
    * Parses the given contents containing a source map.
    */
-  public void parse(JSONObject sourceMapRoot) throws SourceMapParseException {
+  public void parse(JsonObject sourceMapRoot) throws SourceMapParseException {
     parse(sourceMapRoot, null);
   }
 
   /**
    * Parses the given contents containing a source map.
    */
-  public void parse(JSONObject sourceMapRoot, SourceMapSupplier sectionSupplier)
+  public void parse(JsonObject sourceMapRoot, SourceMapSupplier sectionSupplier)
       throws SourceMapParseException {
     try {
       // Check basic assertions about the format.
-      int version = sourceMapRoot.getInt("version");
+      int version = sourceMapRoot.get("version").getAsInt();
       if (version != 3) {
         throw new SourceMapParseException("Unknown version: " + version);
       }
 
       if (sourceMapRoot.has("file")
-          && sourceMapRoot.getString("file").isEmpty()) {
+          && sourceMapRoot.get("file").getAsString().isEmpty()) {
         throw new SourceMapParseException("File entry is empty");
       }
 
@@ -121,32 +120,30 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
       }
 
       lineCount = sourceMapRoot.has("lineCount")
-          ? sourceMapRoot.getInt("lineCount") : -1;
-      String lineMap = sourceMapRoot.getString("mappings");
+          ? sourceMapRoot.get("lineCount").getAsInt() : -1;
+      String lineMap = sourceMapRoot.get("mappings").getAsString();
 
-      sources = getJavaStringArray(sourceMapRoot.getJSONArray("sources"));
-      names = getJavaStringArray(sourceMapRoot.getJSONArray("names"));
+      sources = getJavaStringArray(sourceMapRoot.get("sources").getAsJsonArray());
+      names = getJavaStringArray(sourceMapRoot.get("names").getAsJsonArray());
 
       if (lineCount >= 0) {
-        lines = Lists.newArrayListWithCapacity(lineCount);
+        lines = new ArrayList<>(lineCount);
       } else {
-        lines = Lists.newArrayList();
+        lines = new ArrayList<>();
       }
 
       if (sourceMapRoot.has("sourceRoot")) {
-        sourceRoot = sourceMapRoot.getString("sourceRoot");
+        sourceRoot = sourceMapRoot.get("sourceRoot").getAsString();
       }
 
-      @SuppressWarnings("unchecked")
-      Iterator<String> keys = sourceMapRoot.keys();
-      for (String key : Lists.newArrayList(keys)) {
-        if (key.startsWith("x_")) {
-          extensions.put(key, sourceMapRoot.get(key));
+      for (Map.Entry<String, JsonElement> entry : sourceMapRoot.entrySet()) {
+        if (entry.getKey().startsWith("x_")) {
+          extensions.put(entry.getKey(), entry.getValue());
         }
       }
 
       new MappingBuilder(lineMap).build();
-    } catch (JSONException ex) {
+    } catch (JsonParseException ex) {
       throw new SourceMapParseException("JSON parse exception: " + ex);
     }
   }
@@ -156,7 +153,7 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
    * @throws SourceMapParseException
    */
   private void parseMetaMap(
-      JSONObject sourceMapRoot, SourceMapSupplier sectionSupplier)
+      JsonObject sourceMapRoot, SourceMapSupplier sectionSupplier)
       throws SourceMapParseException {
     if (sectionSupplier == null) {
       sectionSupplier = new DefaultSourceMapSupplier();
@@ -164,12 +161,12 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
 
     try {
       // Check basic assertions about the format.
-      int version = sourceMapRoot.getInt("version");
+      int version = sourceMapRoot.get("version").getAsInt();
       if (version != 3) {
         throw new SourceMapParseException("Unknown version: " + version);
       }
 
-      String file = sourceMapRoot.getString("file");
+      String file = sourceMapRoot.get("file").getAsString();
       if (file.isEmpty()) {
         throw new SourceMapParseException("File entry is missing or empty");
       }
@@ -182,25 +179,25 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
       }
 
       SourceMapGeneratorV3 generator = new SourceMapGeneratorV3();
-      JSONArray sections = sourceMapRoot.getJSONArray("sections");
-      for (int i = 0, count = sections.length(); i < count; i++) {
-        JSONObject section = sections.getJSONObject(i);
+      JsonArray sections = sourceMapRoot.get("sections").getAsJsonArray();
+      for (int i = 0, count = sections.size(); i < count; i++) {
+        JsonObject section = sections.get(i).getAsJsonObject();
         if (section.has("map") && section.has("url")) {
           throw new SourceMapParseException(
               "Invalid map format: section may not have both 'map' and 'url'");
         }
-        JSONObject offset = section.getJSONObject("offset");
-        int line = offset.getInt("line");
-        int column = offset.getInt("column");
+        JsonObject offset = section.get("offset").getAsJsonObject();
+        int line = offset.get("line").getAsInt();
+        int column =  offset.get("column").getAsInt();
         String mapSectionContents;
         if (section.has("url")) {
-          String url = section.getString("url");
+          String url = section.get("url").getAsString();
           mapSectionContents = sectionSupplier.getSourceMap(url);
           if (mapSectionContents == null) {
             throw new SourceMapParseException("Unable to retrieve: " + url);
           }
         } else if (section.has("map")) {
-          mapSectionContents = section.getString("map");
+          mapSectionContents = section.get("map").toString();
         } else {
           throw new SourceMapParseException(
               "Invalid map format: section must have either 'map' or 'url'");
@@ -219,7 +216,7 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
       parse(sb.toString());
     } catch (IOException ex) {
       throw new SourceMapParseException("IO exception: " + ex);
-    } catch (JSONException ex) {
+    } catch (JsonParseException ex) {
       throw new SourceMapParseException("JSON parse exception: " + ex);
     }
   }
@@ -303,11 +300,11 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
   }
 
 
-  private String[] getJavaStringArray(JSONArray array) throws JSONException {
-    int len = array.length();
+  private String[] getJavaStringArray(JsonArray array) throws JsonParseException {
+    int len = array.size();
     String[] result = new String[len];
-    for(int i = 0; i < len; i++) {
-      result[i] = array.getString(i);
+    for (int i = 0; i < len; i++) {
+      result[i] = array.get(i).getAsString();
     }
     return result;
   }
@@ -378,7 +375,8 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
      * Sanity check the entry.
      */
     private void validateEntry(Entry entry) {
-      Preconditions.checkState((lineCount < 0) || (line < lineCount));
+      Preconditions.checkState((lineCount < 0) || (line < lineCount),
+          "line=%s, lineCount=%s", line, lineCount);
       Preconditions.checkState(entry.getSourceFileId() == UNMAPPED
           || entry.getSourceFileId() < sources.length);
       Preconditions.checkState(entry.getNameId() == UNMAPPED

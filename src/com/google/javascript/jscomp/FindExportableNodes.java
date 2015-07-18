@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
@@ -59,7 +58,7 @@ class FindExportableNodes extends AbstractPostOrderCallback {
    * they are encountered.
    */
   private final LinkedHashMap<String, GenerateNodeContext> exports =
-      Maps.newLinkedHashMap();
+       new LinkedHashMap<>();
 
   private final boolean allowLocalExports;
 
@@ -82,6 +81,18 @@ class FindExportableNodes extends AbstractPostOrderCallback {
             export = NodeUtil.getFunctionName(n);
             context = new GenerateNodeContext(n, Mode.EXPORT);
           }
+          break;
+
+        case Token.CLASS:
+          if (parent.isScript()) {
+            export = NodeUtil.getClassName(n);
+            context = new GenerateNodeContext(n, Mode.EXPORT);
+          }
+          break;
+
+        case Token.MEMBER_FUNCTION_DEF:
+          export = n.getString();
+          context = new GenerateNodeContext(n, Mode.EXPORT);
           break;
 
         case Token.ASSIGN:

@@ -16,8 +16,7 @@
 
 package com.google.javascript.jscomp.webservice.common;
 
-import com.google.common.collect.Sets;
-
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -65,6 +64,7 @@ public class Protocol {
     USE_TYPES_FOR_OPTIMIZATIONS("use_types_for_optimization"),
     ANGULAR_PASS("angular_pass"),
     GENERATE_EXPORTS("generate_exports"),
+    DISABLE_PROPERTY_RENAMING("disable_property_renaming"),
 
     // Old ROBOCOMP urls.
     RAWJS("rawjs"),
@@ -77,7 +77,7 @@ public class Protocol {
     private static final Set<String> permittedKeys = getPermittedKeys();
 
     private static Set<String> getPermittedKeys() {
-      Set<String> keys = Sets.newHashSet();
+      Set<String> keys = new HashSet<>();
 
       for (RequestKey key : RequestKey.values()) {
         keys.add(key.asGetParameter());

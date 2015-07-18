@@ -22,6 +22,7 @@
  *  http://www.w3.org/TR/REC-DOM-Level-1/ecma-script-language-binding.html
  *
  * @externs
+ * @author stevey@google.com (Steve Yegge)
  */
 // All the provided definitions have been type annotated.
 
@@ -44,6 +45,14 @@ HTMLCollection.prototype.length;
  * @nosideeffects
  */
 HTMLCollection.prototype.item = function(index) {};
+
+/**
+ * @param {string} name
+ * @return {?Node}
+ * @see http://www.w3.org/TR/2000/CR-DOM-Level-2-20000510/html.html#ID-21069976
+ * @nosideeffects
+ */
+HTMLCollection.prototype.namedItem = function(name) {};
 
 /**
  * @constructor
@@ -215,7 +224,6 @@ var TraversalDocument;
 function NodeFilter() {}
 
 /* Constants for whatToShow */
-/** @const {number} */ NodeFilter.SHOW_TEXT;
 /** @const {number} */ NodeFilter.SHOW_ALL;
 /** @const {number} */ NodeFilter.SHOW_ATTRIBUTE;
 /** @const {number} */ NodeFilter.SHOW_CDATA_SECTION;
@@ -466,7 +474,7 @@ HTMLLinkElement.prototype.target;
  */
 HTMLLinkElement.prototype.type;
 
-/** @override */
+/** @type {StyleSheet} */
 HTMLLinkElement.prototype.sheet;
 
 /**
@@ -577,7 +585,7 @@ HTMLStyleElement.prototype.media;
  */
 HTMLStyleElement.prototype.type;
 
-/** @override */
+/** @type {StyleSheet} */
 HTMLStyleElement.prototype.sheet;
 
 /**
@@ -728,7 +736,7 @@ HTMLSelectElement.prototype.length;
 HTMLSelectElement.prototype.form;
 
 /**
- * @type {HTMLOptionsCollection}
+ * @type {!HTMLOptionsCollection}
  * @see http://www.w3.org/TR/2000/CR-DOM-Level-2-20000510/html.html#ID-30606413
  */
 HTMLSelectElement.prototype.options;
@@ -1287,6 +1295,7 @@ HTMLDirectoryElement.prototype.compact;
  * @constructor
  * @extends {HTMLElement}
  * @see http://www.w3.org/TR/2000/CR-DOM-Level-2-20000510/html.html#ID-72509186
+ * @see http://www.w3.org/html/wg/drafts/html/master/interactive-elements.html#the-menu-element
  */
 function HTMLMenuElement() {}
 

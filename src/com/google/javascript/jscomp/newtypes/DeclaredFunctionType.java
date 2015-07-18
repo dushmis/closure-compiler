@@ -16,12 +16,16 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This class represents the function types for functions that are defined
@@ -34,7 +38,7 @@ import java.util.List;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class DeclaredFunctionType {
+public final class DeclaredFunctionType {
   private final List<JSType> requiredFormals;
   private final List<JSType> optionalFormals;
   private final JSType restFormals;
@@ -43,8 +47,8 @@ public class DeclaredFunctionType {
   private final NominalType nominalType;
   // Non-null iff this is a prototype method
   private final NominalType receiverType;
-  // Non-null iff this function has an @template annotation
-  private ImmutableList<String> typeParameters;
+  // Non-empty iff this function has an @template annotation
+  private final ImmutableList<String> typeParameters;
 
   private DeclaredFunctionType(
       List<JSType> requiredFormals,
@@ -93,6 +97,9 @@ public class DeclaredFunctionType {
     if (optionalFormals == null) {
       optionalFormals = new ArrayList<>();
     }
+    if (typeParameters == null) {
+      typeParameters = ImmutableList.of();
+    }
     return new DeclaredFunctionType(
         requiredFormals, optionalFormals, restFormals, retType,
         nominalType, receiverType, typeParameters);
@@ -123,6 +130,11 @@ public class DeclaredFunctionType {
     return restFormals != null;
   }
 
+  public JSType getRestFormalsType() {
+    Preconditions.checkState(restFormals != null);
+    return restFormals;
+  }
+
   public JSType getReturnType() {
     return returnType;
   }
@@ -144,25 +156,57 @@ public class DeclaredFunctionType {
   }
 
   public boolean isGeneric() {
-    return typeParameters != null;
+    return !typeParameters.isEmpty();
   }
 
   public ImmutableList<String> getTypeParameters() {
     return typeParameters;
   }
 
+  public boolean isTypeVariableDefinedLocally(String tvar) {
+    if (typeParameters.contains(tvar)) {
+      return true;
+    }
+    // We don't look at this.nominalType, b/c if this function is a generic
+    // constructor, then typeParameters contains the relevant type variables.
+    if (receiverType != null && receiverType.isUninstantiatedGenericType()) {
+      RawNominalType rawType = receiverType.getRawNominalType();
+      if (rawType.getTypeParameters().contains(tvar)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public DeclaredFunctionType withReceiverType(NominalType newReceiver) {
+    return new DeclaredFunctionType(
+        this.requiredFormals, this.optionalFormals,
+        this.restFormals, this.returnType, this.nominalType,
+        newReceiver,
+        this.typeParameters);
+  }
+
   public DeclaredFunctionType withTypeInfoFromSuper(
-      DeclaredFunctionType superType) {
+      DeclaredFunctionType superType, boolean getsTypeInfoFromParentMethod) {
+    // getsTypeInfoFromParentMethod is true when a method without jsdoc overrides
+    // a parent method. In this case, the parent may be declaring some formals
+    // as optional and we want to preserve that type information here.
+    if (getsTypeInfoFromParentMethod) {
+      return new DeclaredFunctionType(
+          superType.requiredFormals, superType.optionalFormals,
+          superType.restFormals, superType.returnType, superType.nominalType,
+          this.receiverType, // only keep this from the current type
+          superType.typeParameters);
+    }
+
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
     int i = 0;
     for (JSType formal : requiredFormals) {
-      builder.addReqFormal(
-          formal != null ? formal : superType.getFormalType(i));
+      builder.addReqFormal(formal != null ? formal : superType.getFormalType(i));
       i++;
     }
     for (JSType formal : optionalFormals) {
-      builder.addOptFormal(
-          formal != null ? formal : superType.getFormalType(i));
+      builder.addOptFormal(formal != null ? formal : superType.getFormalType(i));
       i++;
     }
     if (restFormals != null) {
@@ -173,6 +217,55 @@ public class DeclaredFunctionType {
     builder.addRetType(returnType != null ? returnType : superType.returnType);
     builder.addNominalType(nominalType);
     builder.addReceiverType(receiverType);
+    if (!typeParameters.isEmpty()) {
+      builder.addTypeParameters(typeParameters);
+    } else if (!superType.typeParameters.isEmpty()) {
+      builder.addTypeParameters(superType.typeParameters);
+    }
+    return builder.buildDeclaration();
+  }
+
+  // Analogous to FunctionType#substituteNominalGenerics
+  public DeclaredFunctionType substituteNominalGenerics(NominalType nt) {
+    if (!nt.isGeneric()) {
+      return this;
+    }
+    Map<String, JSType> typeMap = nt.getTypeMap();
+    Preconditions.checkState(!typeMap.isEmpty());
+    Map<String, JSType> reducedMap = typeMap;
+    boolean foundShadowedTypeParam = false;
+    for (String typeParam : typeParameters) {
+      if (typeMap.containsKey(typeParam)) {
+        foundShadowedTypeParam = true;
+        break;
+      }
+    }
+    if (foundShadowedTypeParam) {
+      ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+      for (Map.Entry<String, JSType> entry : typeMap.entrySet()) {
+        if (!typeParameters.contains(entry.getKey())) {
+          builder.put(entry);
+        }
+      }
+      reducedMap = builder.build();
+    }
+    FunctionTypeBuilder builder = new FunctionTypeBuilder();
+    for (JSType reqFormal : requiredFormals) {
+      builder.addReqFormal(reqFormal == null ? null : reqFormal.substituteGenerics(reducedMap));
+    }
+    for (JSType optFormal : optionalFormals) {
+      builder.addOptFormal(optFormal == null ? null : optFormal.substituteGenerics(reducedMap));
+    }
+    if (restFormals != null) {
+      builder.addRestFormals(restFormals.substituteGenerics(reducedMap));
+    }
+    if (returnType != null) {
+      builder.addRetType(returnType.substituteGenerics(reducedMap));
+    }
+    // Explicitly forget nominalType and receiverType. This method is used when
+    // calculating the declared type of a method using the inherited types.
+    // In withTypeInfoFromSuper, we ignore super's nominalType and receiverType.
+    builder.addTypeParameters(this.typeParameters);
     return builder.buildDeclaration();
   }
 
@@ -240,7 +333,7 @@ public class DeclaredFunctionType {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this.getClass())
+    return MoreObjects.toStringHelper(this)
         .add("Required formals", requiredFormals)
         .add("Optional formals", optionalFormals)
         .add("Varargs formals", restFormals)

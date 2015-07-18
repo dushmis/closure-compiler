@@ -16,14 +16,14 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.VarCheck.VAR_MULTIPLY_DECLARED_ERROR;
 
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
 
-public class VarCheckTest extends CompilerTestCase {
+public final class VarCheckTest extends CompilerTestCase {
   private static final String EXTERNS = "var window; function alert() {}";
 
   private CheckLevel strictModuleDepErrorLevel;
@@ -92,12 +92,27 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testReferencedVarNotDefined() {
-    test("x = 0;", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("x = 0;", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testReferencedLetNotDefined() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    test("{ let x = 1; } var y = x;", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("{ let x = 1; } var y = x;", VarCheck.UNDEFINED_VAR_ERROR);
+  }
+
+  public void testReferencedLetDefined1() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testSame("let x; x = 1;");
+  }
+
+  public void testReferencedLetDefined2() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testSame("let x; function y() {x = 1;}");
+  }
+
+  public void testReferencedConstDefined2() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testSame("const x = 1; var y = x + 1;");
   }
 
   public void testReferencedVarDefined1() {
@@ -113,8 +128,7 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testMultiplyDeclaredVars1() {
-    test("var x = 1; var x = 2;", null,
-        VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    testError("var x = 1; var x = 2;", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclaredVars2() {
@@ -124,13 +138,40 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testMultiplyDeclaredVars3() {
-    test("try { var x = 1; x *=2; } catch (x) {}", null,
-         VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    testError("try { var x = 1; x *=2; } catch (x) {}", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclaredVars4() {
     testSame("x;", "var x = 1; var x = 2;",
         VarCheck.VAR_MULTIPLY_DECLARED_ERROR, true);
+  }
+
+  public void testMultiplyDeclaredLets() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testError("let x = 1; let x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("let x = 1; var x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("var x = 1; let x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+  }
+
+  public void testMultiplyDeclaredConsts() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testError("const x = 1; const x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("const x = 1; var x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("var x = 1; const x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+  }
+
+  public void testMultiplyDeclareLetsInDifferentScope() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testSame("let x = 1; if (123) {let x = 2;}");
+    testSame("try {let x = 1;} catch(x){}");
+  }
+
+  public void testReferencedVarDefinedClass() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testError("var x; class x{ }", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    testError("let x; class x{ }", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("const x = 1; class x{ }", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testError("class x{ } let x;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testVarReferenceInExterns() {
@@ -141,6 +182,13 @@ public class VarCheckTest extends CompilerTestCase {
   public void testCallInExterns() {
     testSame("yz();", "function yz() {}",
         VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR);
+  }
+
+  public void testNewInExterns() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    // Class is not hoisted.
+    testSame("x = new Klass();", "class Klass{}",
+        VarCheck.UNDEFINED_VAR_ERROR, true);
   }
 
   public void testPropReferenceInExterns1() {
@@ -159,15 +207,29 @@ public class VarCheckTest extends CompilerTestCase {
 
     externValidationErrorLevel = CheckLevel.ERROR;
     test(
-        "asdf.foo;", "var asdf;", "",
+        "asdf.foo;", "var asdf;", (String) null,
          VarCheck.UNDEFINED_EXTERN_VAR_ERROR, null);
 
     externValidationErrorLevel = CheckLevel.OFF;
     test("asdf.foo;", "var asdf;", "var asdf;", null, null);
   }
 
+  public void testPropReferenceInExterns4() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    test("asdf.foo;", "let asdf;", null,
+        VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR,
+        VarCheck.UNDEFINED_EXTERN_VAR_ERROR);
+  }
+
+  public void testPropReferenceInExterns5() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    test("asdf.foo;", "class asdf{};", null,
+        VarCheck.VAR_MULTIPLY_DECLARED_ERROR,
+        VarCheck.UNDEFINED_EXTERN_VAR_ERROR);
+  }
+
   public void testVarInWithBlock() {
-    test("var a = {b:5}; with (a){b;}", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("var a = {b:5}; with (a){b;}", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testValidFunctionExpr() {
@@ -186,15 +248,42 @@ public class VarCheckTest extends CompilerTestCase {
     testDependentModules("var x = 10;", "var y = x++;", null);
   }
 
+  public void testLegalLetReferenceBetweenModules() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testDependentModules("let x = 10;", "let y = x++;", null);
+  }
+
+  public void testLegalConstReferenceBetweenModules() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testDependentModules("const x = 10;", "const y = x + 1;", null);
+  }
+
   public void testMissingModuleDependencyDefault() {
     testIndependentModules("var x = 10;", "var y = x++;",
                            null, VarCheck.MISSING_MODULE_DEP_ERROR);
+  }
+
+  public void testMissingModuleDependencyLetAndConst() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testIndependentModules("let x = 10;", "let y = x++;",
+        null, VarCheck.MISSING_MODULE_DEP_ERROR);
+    testIndependentModules("const x = 10;", "const y = x + 1;",
+        null, VarCheck.MISSING_MODULE_DEP_ERROR);
   }
 
   public void testViolatedModuleDependencyDefault() {
     testDependentModules("var y = x++;", "var x = 10;",
                          VarCheck.VIOLATED_MODULE_DEP_ERROR);
   }
+
+  public void testViolatedModuleDependencyLetAndConst() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testDependentModules("let y = x++;", "let x = 10;",
+        VarCheck.VIOLATED_MODULE_DEP_ERROR);
+    testDependentModules("const y = x + 1;", "const x = 10;",
+        VarCheck.VIOLATED_MODULE_DEP_ERROR);
+  }
+
 
   public void testMissingModuleDependencySkipNonStrict() {
     sanityCheck = true;
@@ -279,8 +368,13 @@ public class VarCheckTest extends CompilerTestCase {
     if (m2DependsOnm1) {
       m2.addDependency(m1);
     }
-    test(new JSModule[] { m1, m2 },
-         new String[] { code1, code2 }, error, warning);
+    if (error == null) {
+      test(new JSModule[] { m1, m2 },
+           new String[] { code1, code2 }, null, warning);
+    } else {
+      test(new JSModule[] { m1, m2 },
+           null, error, warning);
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -296,7 +390,7 @@ public class VarCheckTest extends CompilerTestCase {
     try {
       checkSynthesizedExtern("x", "");
     } catch (RuntimeException e) {
-      assertTrue(e.getMessage().contains("Unexpected variable x"));
+      assertThat(e.getMessage()).contains("Unexpected variable x");
     }
   }
 
@@ -342,7 +436,7 @@ public class VarCheckTest extends CompilerTestCase {
 
   public void testRedeclaration1() {
      String js = "var a; var a;";
-     test(js, null, VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+     testError(js, VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testRedeclaration2() {
@@ -355,27 +449,34 @@ public class VarCheckTest extends CompilerTestCase {
     testSame(js);
   }
 
+  public void testSuppressionWithInlineJsDoc() {
+    testSame("/** @suppress {duplicate} */ var /** number */ a; var a;");
+  }
+
   public void testDuplicateVar() {
-    test("/** @define {boolean} */ var DEF = false; var DEF = true;",
-         null, VAR_MULTIPLY_DECLARED_ERROR);
+    testError("/** @define {boolean} */ var DEF = false; var DEF = true;",
+        VAR_MULTIPLY_DECLARED_ERROR);
+  }
+
+  public void testDontAllowSuppressDupeOnLet() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    String js = "let a; /** @suppress {duplicate} */ let a; ";
+    testError(js, VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testFunctionScopeArguments() {
     // A var declaration doesn't mask arguments
     testSame("function f() {var arguments}");
 
-    test("var f = function arguments() {}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
-    test("var f = function (arguments) {}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
-    test("function f() {try {} catch(arguments) {}}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("var f = function arguments() {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("var f = function (arguments) {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("function f() {try {} catch(arguments) {}}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
   }
 
   public void testNoUndeclaredVarWhenUsingClosurePass() {
     enableClosurePass();
     // We don't want to get goog as an undeclared var here.
-    test("goog.require('namespace.Class1');\n", null,
+    testError("goog.require('namespace.Class1');\n",
         ProcessClosurePrimitives.MISSING_PROVIDE_ERROR);
   }
 
@@ -388,17 +489,18 @@ public class VarCheckTest extends CompilerTestCase {
 
     @Override
     public void process(Node externs, Node root) {
-      NodeTraversal.traverseRoots(compiler, Lists.newArrayList(externs, root),
+      NodeTraversal.traverseRoots(compiler,
           new AbstractPostOrderCallback() {
-        @Override
-        public void visit(NodeTraversal t, Node n, Node parent) {
-          if (n.isName() && !parent.isFunction()
-              && !parent.isLabel()) {
-            assertTrue("Variable " + n.getString() + " should have be declared",
-                t.getScope().isDeclared(n.getString(), true));
-          }
-        }
-      });
+            @Override
+            public void visit(NodeTraversal t, Node n, Node parent) {
+              if (n.isName() && !parent.isFunction()
+                  && !parent.isLabel()) {
+                assertTrue("Variable " + n.getString() + " should have be declared",
+                    t.getScope().isDeclared(n.getString(), true));
+              }
+            }
+          },
+          externs, root);
     }
   }
 
@@ -410,6 +512,7 @@ public class VarCheckTest extends CompilerTestCase {
   public void checkSynthesizedExtern(
       String extern, String input, String expectedExtern) {
     declarationCheck = !sanityCheck;
+    this.enableCompareAsTree(false);
     testExternChanges(extern, input, expectedExtern);
   }
 }

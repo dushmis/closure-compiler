@@ -17,33 +17,39 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeI;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Look for internal properties set using "this" but never read.  Explicitly
- * ignored is the possibility that these properties
- * may be indirectly referenced using "for-in" or "Object.keys".  This is the
- * same assumption used with RemoveUnusedPrototypeProperties but is by slightly
- * wider in scope.
+ * This pass looks for properties that are never read and removes them.
+ * These can be properties created using "this", or static properties of
+ * constructors or interfaces. Explicitly ignored is the possibility that
+ * these properties may be indirectly referenced using "for-in" or
+ * "Object.keys".  This is the same assumption used with
+ * RemoveUnusedPrototypeProperties but is slightly wider in scope.
  *
  * @author johnlenz@google.com (John Lenz)
  */
 class RemoveUnusedClassProperties
     implements CompilerPass, NodeTraversal.Callback {
-  final AbstractCompiler compiler;
-  private Set<String> used = Sets.newHashSet();
-  private List<Node> candidates = Lists.newArrayList();
+  private final AbstractCompiler compiler;
+  private Set<String> used = new HashSet<>();
+  private List<Node> candidates = new ArrayList<>();
 
-  RemoveUnusedClassProperties(AbstractCompiler compiler) {
+  private final boolean removeUnusedConstructorProperties;
+
+  RemoveUnusedClassProperties(
+      AbstractCompiler compiler, boolean removeUnusedConstructorProperties) {
     this.compiler = compiler;
     used.addAll(compiler.getExternProperties());
+    this.removeUnusedConstructorProperties = removeUnusedConstructorProperties;
   }
 
   @Override
@@ -55,8 +61,10 @@ class RemoveUnusedClassProperties
   private void removeUnused() {
     for (Node n : candidates) {
       Preconditions.checkState(n.isGetProp());
-      if (!used.contains(n.getLastChild().getString())) {
+      String propName = n.getLastChild().getString();
+      if (!used.contains(propName)) {
         Node parent = n.getParent();
+        Node replacement;
         if (NodeUtil.isAssignmentOp(parent)) {
           Node assign = parent;
           Preconditions.checkState(assign != null
@@ -64,14 +72,29 @@ class RemoveUnusedClassProperties
               && assign.getFirstChild() == n);
           compiler.reportChangeToEnclosingScope(assign);
           // 'this.x = y' to 'y'
-          assign.getParent().replaceChild(assign,
-              assign.getLastChild().detachFromParent());
+          replacement = assign.getLastChild().detachFromParent();
         } else if (parent.isInc() || parent.isDec()) {
           compiler.reportChangeToEnclosingScope(parent);
-          parent.getParent().replaceChild(parent, IR.number(0));
+          replacement = IR.number(0).srcref(parent);
         } else {
           throw new IllegalStateException("unexpected: " + parent);
         }
+
+        // If the property expression is complex preserve that part of the
+        // expression.
+        if (!n.isQualifiedName()) {
+          Node preserved = n.getFirstChild();
+          while (preserved.isGetProp()) {
+            preserved = preserved.getFirstChild();
+          }
+          replacement = IR.comma(
+              preserved.detachFromParent(),
+              replacement)
+              .srcref(parent);
+        }
+
+        compiler.reportChangeToEnclosingScope(parent);
+        parent.getParent().replaceChild(parent, replacement);
       }
     }
   }
@@ -88,7 +111,7 @@ class RemoveUnusedClassProperties
          String propName = n.getLastChild().getString();
          if (compiler.getCodingConvention().isExported(propName)
              || isPinningPropertyUse(n)
-             || !isKnownClassProperty(n)) {
+             || !isRemovablePropertyDefinition(n)) {
            used.add(propName);
          } else {
            // This is a definition of a property but it is only removable
@@ -122,12 +145,18 @@ class RemoveUnusedClassProperties
      }
   }
 
-  private static boolean isKnownClassProperty(Node n) {
+  private boolean isRemovablePropertyDefinition(Node n) {
     Preconditions.checkState(n.isGetProp());
     Node target = n.getFirstChild();
     return target.isThis()
+        || (this.removeUnusedConstructorProperties && isConstructor(target))
         || (target.isGetProp()
             && target.getLastChild().getString().equals("prototype"));
+  }
+
+  private boolean isConstructor(Node n) {
+    TypeI type = n.getTypeI();
+    return type != null && (type.isConstructor() || type.isInterface());
   }
 
   /**

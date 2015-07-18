@@ -16,11 +16,13 @@
 
 package com.google.javascript.refactoring;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.Compiler;
 import com.google.javascript.jscomp.CompilerOptions;
 import com.google.javascript.jscomp.SourceFile;
@@ -78,7 +80,7 @@ public class ApplySuggestedFixesTest {
   public void testApplyCodeReplacements_deletion() throws Exception {
     List<CodeReplacement> replacements = ImmutableList.of(new CodeReplacement(0, 6, ""));
     String newCode = ApplySuggestedFixes.applyCodeReplacements(replacements, "abcdef");
-    assertEquals("", newCode);
+    assertThat(newCode).isEmpty();
   }
 
   @Test
@@ -107,8 +109,51 @@ public class ApplySuggestedFixesTest {
     Map<String, String> codeMap = ImmutableMap.of("test", code);
     Map<String, String> newCodeMap = ApplySuggestedFixes.applySuggestedFixesToCode(
         fixes, codeMap);
-    assertEquals(1, newCodeMap.size());
-    assertEquals("", newCodeMap.get("test"));
+    assertThat(newCodeMap).hasSize(1);
+    assertThat(newCodeMap).containsEntry("test", "");
+  }
+
+  @Test
+  public void testApplySuggestedFixes_insideJSDoc() throws Exception {
+    String code = "/** @type {Foo} */\nvar foo = new Foo()";
+    Compiler compiler = getCompiler(code);
+    Node root = compileToScriptRoot(compiler);
+    Node varNode = root.getFirstChild();
+    Node jsdocRoot =
+        Iterables.getOnlyElement(varNode.getJSDocInfo().getTypeNodes());
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .insertBefore(jsdocRoot, "!")
+        .build();
+    List<SuggestedFix> fixes = ImmutableList.of(fix);
+    Map<String, String> codeMap = ImmutableMap.of("test", code);
+    Map<String, String> newCodeMap = ApplySuggestedFixes.applySuggestedFixesToCode(
+        fixes, codeMap);
+    assertThat(newCodeMap).hasSize(1);
+    assertThat(newCodeMap).containsEntry("test", "/** @type {!Foo} */\nvar foo = new Foo()");
+  }
+
+  @Test
+  public void testApplySuggestedFixes_multipleFixesInJsdoc() throws Exception {
+    String code = "/** @type {Array<Foo>} */\nvar arr = [new Foo()];";
+    Compiler compiler = getCompiler(code);
+    Node root = compileToScriptRoot(compiler);
+    Node varNode = root.getFirstChild();
+    Node jsdocRoot =
+        Iterables.getOnlyElement(varNode.getJSDocInfo().getTypeNodes());
+    SuggestedFix fix1 = new SuggestedFix.Builder()
+        .insertBefore(jsdocRoot, "!")
+        .build();
+    Node foo = jsdocRoot.getFirstChild().getFirstChild();
+    SuggestedFix fix2 = new SuggestedFix.Builder()
+        .insertBefore(foo, "!")
+        .build();
+    List<SuggestedFix> fixes = ImmutableList.of(fix1, fix2);
+    Map<String, String> codeMap = ImmutableMap.of("test", code);
+    Map<String, String> newCodeMap = ApplySuggestedFixes.applySuggestedFixesToCode(
+        fixes, codeMap);
+    assertThat(newCodeMap).hasSize(1);
+    assertThat(newCodeMap)
+        .containsEntry("test", "/** @type {!Array<!Foo>} */\nvar arr = [new Foo()];");
   }
 
   @Test
@@ -131,8 +176,7 @@ public class ApplySuggestedFixesTest {
     Node root = compileToScriptRoot(compiler);
     List<SuggestedFix> fixes = ImmutableList.of(new SuggestedFix.Builder().delete(root).build());
     try {
-      Map<String, String> newCodeMap = ApplySuggestedFixes.applySuggestedFixesToCode(
-          fixes, codeMap);
+      ApplySuggestedFixes.applySuggestedFixesToCode(fixes, codeMap);
       fail("applySuggestedFixesToCode should have failed since file is missing from code map.");
     } catch (IllegalArgumentException expected) {}
   }

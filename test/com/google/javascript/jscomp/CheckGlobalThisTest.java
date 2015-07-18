@@ -21,7 +21,7 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 /**
  * Tests {@link CheckGlobalThis}.
  */
-public class CheckGlobalThisTest extends CompilerTestCase {
+public final class CheckGlobalThisTest extends CompilerTestCase {
   public CheckGlobalThisTest() {
     this.parseTypeInfo = true;
   }
@@ -119,23 +119,23 @@ public class CheckGlobalThisTest extends CompilerTestCase {
   }
 
   public void testThisJSDoc1() throws Exception {
-    testSame("/** @this whatever */function h() { this.foo = 56; }");
+    testSame("/** @this {whatever} */function h() { this.foo = 56; }");
   }
 
   public void testThisJSDoc2() throws Exception {
-    testSame("/** @this whatever */var h = function() { this.foo = 56; }");
+    testSame("/** @this {whatever} */var h = function() { this.foo = 56; }");
   }
 
   public void testThisJSDoc3() throws Exception {
-    testSame("/** @this whatever */foo.bar = function() { this.foo = 56; }");
+    testSame("/** @this {whatever} */foo.bar = function() { this.foo = 56; }");
   }
 
   public void testThisJSDoc4() throws Exception {
-    testSame("/** @this whatever */function f() { this.foo = 56; }");
+    testSame("/** @this {whatever} */function f() { this.foo = 56; }");
   }
 
   public void testThisJSDoc5() throws Exception {
-    testSame("function a() { /** @this x */function f() { this.foo = 56; } }");
+    testSame("function a() { /** @this {x} */function f() { this.foo = 56; } }");
   }
 
   public void testMethod1() {

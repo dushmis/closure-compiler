@@ -16,26 +16,28 @@
 
 package com.google.debugging.sourcemap;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import static com.google.common.truth.Truth.assertThat;
+
+import com.google.common.collect.ImmutableList;
 import com.google.debugging.sourcemap.SourceMapGeneratorV3.ExtensionMergeAction;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.google.javascript.jscomp.SourceMap;
 import com.google.javascript.jscomp.SourceMap.Format;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-
 
 /**
  * @author johnlenz@google.com (John Lenz)
  */
-public class SourceMapGeneratorV3Test extends SourceMapTestCase {
+public final class SourceMapGeneratorV3Test extends SourceMapTestCase {
 
   public SourceMapGeneratorV3Test() {
   }
@@ -337,13 +339,13 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
     String files1 = map1.split("\n")[4];
     String files2 = map2.split("\n")[4];
 
-    assertEquals(files1, files2);
+    assertThat(files2).isEqualTo(files1);
   }
 
   public void testWriteMetaMap() throws IOException {
     StringWriter out = new StringWriter();
     String name = "./app.js";
-    List<SourceMapSection> appSections = Lists.newArrayList(
+    List<SourceMapSection> appSections = ImmutableList.of(
         SourceMapSection.forURL("src1", 0, 0),
         SourceMapSection.forURL("src2", 100, 10),
         SourceMapSection.forURL("src3", 150, 5));
@@ -351,35 +353,34 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
     SourceMapGeneratorV3 generator = new SourceMapGeneratorV3();
     generator.appendIndexMapTo(out, name, appSections);
 
-    assertEquals(
-            "{\n" +
-            "\"version\":3,\n" +
-            "\"file\":\"./app.js\",\n" +
-            "\"sections\":[\n" +
-            "{\n" +
-            "\"offset\":{\n" +
-            "\"line\":0,\n" +
-            "\"column\":0\n" +
-            "},\n" +
-            "\"url\":\"src1\"\n" +
-            "},\n" +
-            "{\n" +
-            "\"offset\":{\n" +
-            "\"line\":100,\n" +
-            "\"column\":10\n" +
-            "},\n" +
-            "\"url\":\"src2\"\n" +
-            "},\n" +
-            "{\n" +
-            "\"offset\":{\n" +
-            "\"line\":150,\n" +
-            "\"column\":5\n" +
-            "},\n" +
-            "\"url\":\"src3\"\n" +
-            "}\n" +
-            "]\n" +
-            "}\n",
-            out.toString());
+    assertThat(out.toString())
+        .isEqualTo("{\n"
+            + "\"version\":3,\n"
+            + "\"file\":\"./app.js\",\n"
+            + "\"sections\":[\n"
+            + "{\n"
+            + "\"offset\":{\n"
+            + "\"line\":0,\n"
+            + "\"column\":0\n"
+            + "},\n"
+            + "\"url\":\"src1\"\n"
+            + "},\n"
+            + "{\n"
+            + "\"offset\":{\n"
+            + "\"line\":100,\n"
+            + "\"column\":10\n"
+            + "},\n"
+            + "\"url\":\"src2\"\n"
+            + "},\n"
+            + "{\n"
+            + "\"offset\":{\n"
+            + "\"line\":150,\n"
+            + "\"column\":5\n"
+            + "},\n"
+            + "\"url\":\"src3\"\n"
+            + "}\n"
+            + "]\n"
+            + "}\n");
   }
 
   private String getEmptyMapFor(String name) throws IOException {
@@ -392,7 +393,7 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
   public void testWriteMetaMap2() throws IOException {
     StringWriter out = new StringWriter();
     String name = "./app.js";
-    List<SourceMapSection> appSections = Lists.newArrayList(
+    List<SourceMapSection> appSections = ImmutableList.of(
         // Map and URLs can be mixed.
         SourceMapSection.forMap(getEmptyMapFor("./part.js"), 0, 0),
         SourceMapSection.forURL("src2", 100, 10));
@@ -400,42 +401,41 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
     SourceMapGeneratorV3 generator = new SourceMapGeneratorV3();
     generator.appendIndexMapTo(out, name, appSections);
 
-    assertEquals(
-            "{\n" +
-            "\"version\":3,\n" +
-            "\"file\":\"./app.js\",\n" +
-            "\"sections\":[\n" +
-            "{\n" +
-            "\"offset\":{\n" +
-            "\"line\":0,\n" +
-            "\"column\":0\n" +
-            "},\n" +
-            "\"map\":{\n" +
-              "\"version\":3,\n" +
-              "\"file\":\"./part.js\",\n" +
-              "\"lineCount\":1,\n" +
-              "\"mappings\":\";\",\n" +
-              "\"sources\":[],\n" +
-              "\"names\":[]\n" +
-            "}\n" +
-            "\n" +
-            "},\n" +
-            "{\n" +
-            "\"offset\":{\n" +
-            "\"line\":100,\n" +
-            "\"column\":10\n" +
-            "},\n" +
-            "\"url\":\"src2\"\n" +
-            "}\n" +
-            "]\n" +
-            "}\n",
-            out.toString());
+    assertThat(out.toString())
+        .isEqualTo("{\n"
+            + "\"version\":3,\n"
+            + "\"file\":\"./app.js\",\n"
+            + "\"sections\":[\n"
+            + "{\n"
+            + "\"offset\":{\n"
+            + "\"line\":0,\n"
+            + "\"column\":0\n"
+            + "},\n"
+            + "\"map\":{\n"
+            + "\"version\":3,\n"
+            + "\"file\":\"./part.js\",\n"
+            + "\"lineCount\":1,\n"
+            + "\"mappings\":\";\",\n"
+            + "\"sources\":[],\n"
+            + "\"names\":[]\n"
+            + "}\n"
+            + "\n"
+            + "},\n"
+            + "{\n"
+            + "\"offset\":{\n"
+            + "\"line\":100,\n"
+            + "\"column\":10\n"
+            + "},\n"
+            + "\"url\":\"src2\"\n"
+            + "}\n"
+            + "]\n"
+            + "}\n");
   }
 
   public void testParseSourceMetaMap() throws Exception {
     final String INPUT1 = "file1";
     final String INPUT2 = "file2";
-    LinkedHashMap<String, String> inputs = Maps.newLinkedHashMap();
+    LinkedHashMap<String, String> inputs = new LinkedHashMap<>();
     inputs.put(INPUT1, "var __FOO__ = 1;");
     inputs.put(INPUT2, "var __BAR__ = 2;");
     RunResult result1 = compile(inputs.get(INPUT1), INPUT1);
@@ -443,11 +443,11 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
 
     final String MAP1 = "map1";
     final String MAP2 = "map2";
-    final LinkedHashMap<String, String> maps = Maps.newLinkedHashMap();
+    final LinkedHashMap<String, String> maps = new LinkedHashMap<>();
     maps.put(MAP1, result1.sourceMapFileContent);
     maps.put(MAP2, result2.sourceMapFileContent);
 
-    List<SourceMapSection> sections = Lists.newArrayList();
+    List<SourceMapSection> sections = new ArrayList<>();
 
     StringBuilder output = new StringBuilder();
     FilePosition offset = appendAndCount(output, result1.generatedSource);
@@ -471,7 +471,7 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
   public void testSourceMapMerging() throws Exception {
     final String INPUT1 = "file1";
     final String INPUT2 = "file2";
-    LinkedHashMap<String, String> inputs = Maps.newLinkedHashMap();
+    LinkedHashMap<String, String> inputs = new LinkedHashMap<>();
     inputs.put(INPUT1, "var __FOO__ = 1;");
     inputs.put(INPUT2, "var __BAR__ = 2;");
     RunResult result1 = compile(inputs.get(INPUT1), INPUT1);
@@ -496,9 +496,9 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
   public void testSourceMapExtensions() throws Exception {
     //generating the json
     SourceMapGeneratorV3 mapper = new SourceMapGeneratorV3();
-    mapper.addExtension("x_google_foo", new JSONObject());
-    mapper.addExtension("x_google_test", new JSONObject("{\"number\" : 1}"));
-    mapper.addExtension("x_google_array", new JSONArray("[]"));
+    mapper.addExtension("x_google_foo", new JsonObject());
+    mapper.addExtension("x_google_test", parseJsonObject("{\"number\" : 1}"));
+    mapper.addExtension("x_google_array", new JsonArray());
     mapper.addExtension("x_google_int", new Integer(2));
     mapper.addExtension("x_google_str", "Some text");
 
@@ -506,17 +506,18 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
     StringBuilder out = new StringBuilder();
     mapper.appendTo(out, "out.js");
 
-    assertTrue(mapper.hasExtension("x_google_test"));
+    assertThat(mapper.hasExtension("x_google_test")).isTrue();
 
     //reading & checking the extension properties
-    JSONObject sourceMap = new JSONObject(out.toString());
+    JsonObject sourceMap = parseJsonObject(out.toString());
 
-    assertFalse(sourceMap.has("x_google_foo"));
-    assertFalse(sourceMap.has("google_test"));
-    assertEquals(1, sourceMap.getJSONObject("x_google_test").getInt("number"));
-    assertEquals(0, sourceMap.getJSONArray("x_google_array").length());
-    assertEquals(2, sourceMap.getInt("x_google_int"));
-    assertEquals("Some text", sourceMap.getString("x_google_str"));
+    assertThat(sourceMap.has("x_google_foo")).isFalse();
+    assertThat(sourceMap.has("google_test")).isFalse();
+    assertThat(sourceMap.get("x_google_test").getAsJsonObject().get("number").getAsInt())
+        .isEqualTo(1);
+    assertThat(sourceMap.get("x_google_array").getAsJsonArray().size()).isEqualTo(0);
+    assertThat(sourceMap.get("x_google_int").getAsInt()).isEqualTo(2);
+    assertThat(sourceMap.get("x_google_str").getAsString()).isEqualTo("Some text");
   }
 
   public void testSourceMapMergeExtensions() throws Exception {
@@ -532,7 +533,7 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
         "\"x_company_foo\":2\n" +
         "}\n");
 
-    assertFalse(mapper.hasExtension("x_company_foo"));
+    assertThat(mapper.hasExtension("x_company_foo")).isFalse();
 
     mapper.addExtension("x_company_baz", new Integer(2));
 
@@ -550,12 +551,13 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
       @Override
       public Object merge(String extensionKey, Object currentValue,
           Object newValue) {
-        return (Integer) currentValue + (Integer) newValue;
+        return (Integer) currentValue
+            + ((JsonPrimitive) newValue).getAsInt();
       }
     });
 
-    assertEquals(5, mapper.getExtension("x_company_baz"));
-    assertEquals(false, mapper.getExtension("x_company_bar"));
+    assertThat(mapper.getExtension("x_company_baz")).isEqualTo(5);
+    assertThat(((JsonPrimitive) mapper.getExtension("x_company_bar")).getAsBoolean()).isFalse();
   }
 
   public void testSourceRoot() throws Exception{
@@ -564,25 +566,25 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
     //checking absence of sourceRoot
     StringBuilder out = new StringBuilder();
     mapper.appendTo(out, "out.js");
-    JSONObject mapping = new JSONObject(out.toString());
+    JsonObject mapping = parseJsonObject(out.toString());
 
-    assertEquals(3, mapping.getInt("version"));
-    assertFalse(mapping.has("sourceRoot"));
+    assertThat(mapping.get("version").getAsInt()).isEqualTo(3);
+    assertThat(mapping.has("sourceRoot")).isFalse();
 
     out = new StringBuilder();
     mapper.setSourceRoot("");
     mapper.appendTo(out, "out2.js");
-    mapping = new JSONObject(out.toString());
+    mapping = parseJsonObject(out.toString());
 
-    assertFalse(mapping.has("sourceRoot"));
+    assertThat(mapping.has("sourceRoot")).isFalse();
 
     //checking sourceRoot
     out = new StringBuilder();
     mapper.setSourceRoot("http://url/path");
     mapper.appendTo(out, "out3.js");
-    mapping = new JSONObject(out.toString());
+    mapping = parseJsonObject(out.toString());
 
-    assertEquals("http://url/path", mapping.getString("sourceRoot"));
+    assertThat(mapping.get("sourceRoot").getAsString()).isEqualTo("http://url/path");
   }
 
   FilePosition count(String js) {
@@ -601,5 +603,9 @@ public class SourceMapGeneratorV3Test extends SourceMapTestCase {
   FilePosition appendAndCount(Appendable out, String js) throws IOException {
     out.append(js);
     return count(js);
+  }
+
+  private JsonObject parseJsonObject(String json) {
+    return new Gson().fromJson(json, JsonObject.class);
   }
 }

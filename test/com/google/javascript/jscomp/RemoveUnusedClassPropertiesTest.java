@@ -19,7 +19,7 @@ package com.google.javascript.jscomp;
 /**
  * @author johnlenz@google.com (John Lenz)
  */
-public class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
+public final class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
 
   private static final String EXTERNS =
       "var window;\n" +
@@ -34,7 +34,7 @@ public class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new RemoveUnusedClassProperties(compiler);
+    return new RemoveUnusedClassProperties(compiler, true);
   }
 
   public void testSimple1() {
@@ -169,6 +169,22 @@ public class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
         "new B().dostuff();\n");
   }
 
+  public void testNoRemoveSideEffect1() {
+    test(
+        "function A() {alert('me'); return function(){}}\n" +
+        "A().prototype.foo = function() {};\n",
+        "function A() {alert('me'); return function(){}}\n" +
+        "A(),function(){};\n");
+  }
+
+  public void testNoRemoveSideEffect2() {
+    test(
+        "function A() {alert('me'); return function(){}}\n" +
+        "A().prototype.foo++;\n",
+        "function A() {alert('me'); return function(){}}\n" +
+        "A(),0;\n");
+  }
+
   public void testPrototypeProps1() {
     test(
         "function A() {this.foo = 1;}\n" +
@@ -188,5 +204,23 @@ public class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
         "A.prototype._foo = 0;\n" +
         "A.prototype.method = function() {this._foo++};\n" +
         "new A().method()\n");
+  }
+
+  public void testConstructorProperty1() {
+    enableTypeCheck(CheckLevel.OFF);
+
+    test(
+        "/** @constructor */ function C() {} C.prop = 1;",
+        "/** @constructor */ function C() {} 1");
+  }
+
+  public void testConstructorProperty2() {
+    enableTypeCheck(CheckLevel.OFF);
+
+    testSame(
+        "/** @constructor */ function C() {} "
+        + "C.prop = 1; "
+        + "function use(a) { alert(a.prop) }; "
+        + "use(C)");
   }
 }

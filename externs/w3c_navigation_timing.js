@@ -21,6 +21,7 @@
  * @see http://dvcs.w3.org/hg/webperf/raw-file/tip/specs/NavigationTiming/Overview.html
  * @see http://w3c-test.org/webperf/specs/ResourceTiming
  * @see http://www.w3.org/TR/performance-timeline
+ * @see http://www.w3.org/TR/user-timing/
  *
  * @externs
  */
@@ -104,6 +105,12 @@ function Performance() {}
 Performance.prototype.clearResourceTimings = function() {};
 
 /**
+ * Clear out the buffer of performance timing events for webkit browsers.
+ * @return {undefined}
+ */
+Performance.prototype.webkitClearResourceTimings = function() {};
+
+/**
  * Set the maximum number of PerformanceResourceTiming resources that may be
  * stored in the buffer.
  * @param {number} maxSize
@@ -150,6 +157,29 @@ Performance.prototype.now = function() {};
  * @nosideeffects
  */
 Performance.prototype.webkitNow = function() {};
+
+/**
+ * @param {string} markName
+ */
+Performance.prototype.mark = function(markName) {};
+
+/**
+ * @param {string=} opt_markName
+ */
+Performance.prototype.clearMarks = function(opt_markName) {};
+
+/**
+ * @param {string} measureName
+ * @param {string=} opt_startMark
+ * @param {string=} opt_endMark
+ */
+Performance.prototype.measure =
+    function(measureName, opt_startMark, opt_endMark) {};
+
+/**
+ * @param {string=} opt_measureName
+ */
+Performance.prototype.clearMeasures = function(opt_measureName) {};
 
 /** @type {Performance} */
 Window.prototype.performance;

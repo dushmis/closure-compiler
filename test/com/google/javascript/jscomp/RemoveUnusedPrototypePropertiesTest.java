@@ -21,7 +21,7 @@ package com.google.javascript.jscomp;
  *
  * @author nicksantos@google.com (Nick Santos)
  */
-public class RemoveUnusedPrototypePropertiesTest extends CompilerTestCase {
+public final class RemoveUnusedPrototypePropertiesTest extends CompilerTestCase {
   private static final String EXTERNS =
       "IFoo.prototype.bar; var mExtern; mExtern.bExtern; mExtern['cExtern'];";
 
@@ -311,6 +311,12 @@ public class RemoveUnusedPrototypePropertiesTest extends CompilerTestCase {
   public void testPropertiesDefinedWithGetElem() {
     testSame("function Foo() {} Foo.prototype['elem'] = function() {};");
     testSame("function Foo() {} Foo.prototype[1 + 1] = function() {};");
+  }
+
+  public void testQuotedProperties() {
+    // Basic removal for prototype replacement
+    testSame("function e(){}" +
+           "e.prototype = {'a': function(){}, 'b': function(){}};");
   }
 
   public void testNeverRemoveImplicitlyUsedProperties() {

@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -178,8 +177,8 @@ class ExtractPrototypeMemberDeclarations implements CompilerPass {
       Node stmt = new Node(first.node.getType(),
          IR.assign(
               IR.name(prototypeAlias),
-              NodeUtil.newQualifiedNameNode(
-                  compiler.getCodingConvention(), className + ".prototype",
+              NodeUtil.newQName(
+                  compiler, className + ".prototype",
                   instance.parent, className + ".prototype")))
           .copyInformationFromForTree(first.node);
 
@@ -192,8 +191,8 @@ class ExtractPrototypeMemberDeclarations implements CompilerPass {
            block);
 
       Node call = IR.call(func,
-           NodeUtil.newQualifiedNameNode(
-               compiler.getCodingConvention(), className + ".prototype",
+           NodeUtil.newQName(
+               compiler, className + ".prototype",
                instance.parent, className + ".prototype"));
       call.putIntProp(Node.FREE_CALL, 1);
 
@@ -220,8 +219,8 @@ class ExtractPrototypeMemberDeclarations implements CompilerPass {
     // x.prototype.y = ...  ->  t.y = ...
     Node assignment = declar.node.getFirstChild();
     Node lhs = assignment.getFirstChild();
-    Node name = NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(),
+    Node name = NodeUtil.newQName(
+        compiler,
         prototypeAlias + "." + declar.memberName, declar.node,
         declar.memberName);
 
@@ -249,7 +248,7 @@ class ExtractPrototypeMemberDeclarations implements CompilerPass {
    */
   private class GatherExtractionInfo extends AbstractShallowCallback {
 
-    private List<ExtractionInstance> instances = Lists.newLinkedList();
+    private List<ExtractionInstance> instances = new LinkedList<>();
     private int totalDelta = pattern.globalOverhead;
 
     @Override
@@ -291,7 +290,7 @@ class ExtractPrototypeMemberDeclarations implements CompilerPass {
   }
 
   private class ExtractionInstance {
-    LinkedList<PrototypeMemberDeclaration> declarations = Lists.newLinkedList();
+    LinkedList<PrototypeMemberDeclaration> declarations = new LinkedList<>();
     private int delta = 0;
     private final Node parent;
 

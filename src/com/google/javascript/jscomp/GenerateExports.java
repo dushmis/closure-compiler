@@ -81,13 +81,9 @@ class GenerateExports implements CompilerPass {
     }
   }
 
-  private Node qualifiedNameNode(String qname) {
-    return NodeUtil.newQualifiedNameNode(compiler.getCodingConvention(), qname);
-  }
-
   private void addExtern(String export) {
     Node propstmt = IR.exprResult(
-        IR.getprop(qualifiedNameNode("Object.prototype"), IR.string(export)));
+        IR.getprop(NodeUtil.newQName(compiler, "Object.prototype"), IR.string(export)));
     NodeUtil.setDebugInformation(propstmt, getSynthesizedExternsRoot(), export);
     getSynthesizedExternsRoot().addChildToBack(propstmt);
     compiler.reportCodeChange();
@@ -95,8 +91,6 @@ class GenerateExports implements CompilerPass {
 
   private void addExportMethod(Map<String, GenerateNodeContext> exports,
       String export, GenerateNodeContext context) {
-    CodingConvention convention = compiler.getCodingConvention();
-
     // Emit the proper CALL expression.
     // This is an optimization to avoid exporting everything as a symbol
     // because exporting a property is significantly simpler/faster.
@@ -113,13 +107,20 @@ class GenerateExports implements CompilerPass {
           && parentNode.getLastChild().getString().equals(PROTOTYPE_PROPERTY)) {
         grandparent = parentNode.getFirstChild().getQualifiedName();
       }
+    } else if (node.getParent().isMemberFunctionDef()) {
+      Node classNode = node.getParent().getParent().getParent();
+      parent = NodeUtil.getClassName(classNode);
+      parent += node.getParent().isStaticMember() ? "" : ".prototype";
+      export = parent + "." + export;
     }
 
     boolean useExportSymbol = true;
-    if (grandparent != null && exports.containsKey(grandparent)) {
+    if (grandparent != null) {
       // grandparent is only set for properties exported off a prototype obj.
       useExportSymbol = false;
     } else if (parent != null && exports.containsKey(parent)) {
+      useExportSymbol = false;
+    } else if (node.getParent().isMemberFunctionDef()) {
       useExportSymbol = false;
     }
 
@@ -127,26 +128,26 @@ class GenerateExports implements CompilerPass {
     if (useExportSymbol) {
       // exportSymbol(publicPath, object);
       call = IR.call(
-          NodeUtil.newQualifiedNameNode(
-              convention, exportSymbolFunction,
+          NodeUtil.newQName(
+              compiler, exportSymbolFunction,
               context.getNode(), export),
           IR.string(export),
-          NodeUtil.newQualifiedNameNode(
-              convention, export,
+          NodeUtil.newQName(
+              compiler, export,
               context.getNode(), export));
     } else {
       // exportProperty(object, publicName, symbol);
       String property = getPropertyName(node);
       call = IR.call(
-          NodeUtil.newQualifiedNameNode(
-              convention, exportPropertyFunction,
+          NodeUtil.newQName(
+              compiler, exportPropertyFunction,
               context.getNode(), exportPropertyFunction),
-          NodeUtil.newQualifiedNameNode(
-              convention, parent,
+          NodeUtil.newQName(
+              compiler, parent,
               context.getNode(), exportPropertyFunction),
           IR.string(property),
-          NodeUtil.newQualifiedNameNode(
-              convention, export,
+          NodeUtil.newQName(
+              compiler, export,
               context.getNode(), exportPropertyFunction));
     }
 
@@ -196,8 +197,12 @@ class GenerateExports implements CompilerPass {
    * @return property name.
    */
   private static String getPropertyName(Node node) {
-    Preconditions.checkArgument(node.isGetProp());
-    return node.getLastChild().getString();
+    Preconditions.checkArgument(node.isGetProp() || node.getParent().isMemberFunctionDef());
+    if (node.isGetProp()) {
+      return node.getLastChild().getString();
+    } else {
+      return node.getParent().getString();
+    }
   }
 
   /** Lazily create a "new" externs root for undeclared variables. */

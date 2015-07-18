@@ -16,7 +16,12 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.testing.NodeSubject.assertNode;
+
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractNodeTypePruningCallback;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -30,7 +35,7 @@ import java.util.Set;
 /**
  * Tests for {@link NodeTraversal}.
  */
-public class NodeTraversalTest extends TestCase {
+public final class NodeTraversalTest extends TestCase {
   public void testPruningCallbackShouldTraverse1() {
     PruningCallback include =
       new PruningCallback(ImmutableSet.of(Token.SCRIPT, Token.VAR), true);
@@ -89,7 +94,7 @@ public class NodeTraversalTest extends TestCase {
     DiagnosticType dt = DiagnosticType.warning("FOO", "{0}, {1} - {2}");
 
     t.report(new Node(Token.EMPTY), dt, "Foo", "Bar", "Hello");
-    assertEquals(1, errors.size());
+    assertThat(errors).hasSize(1);
     assertEquals("Foo, Bar - Hello", errors.get(0).description);
   }
 
@@ -113,10 +118,10 @@ public class NodeTraversalTest extends TestCase {
       t.traverse(tree);
       fail("Expected RuntimeException");
     } catch (RuntimeException e) {
-      assertTrue(e.getMessage().startsWith(
-          "INTERNAL COMPILER ERROR.\n" +
-          "Please report this problem.\n" +
-          "test me"));
+      assertThat(e.getMessage())
+          .startsWith("INTERNAL COMPILER ERROR.\n"
+              + "Please report this problem.\n\n"
+              + "test me");
     }
   }
 
@@ -130,7 +135,7 @@ public class NodeTraversalTest extends TestCase {
           public void enterScope(NodeTraversal t) {
             Node root1 = t.getScopeRoot();
             Node root2 = t.getScope().getRootNode();
-            assertEquals(root1, root2);
+            assertNode(root2).isEqualTo(root1);
           }
 
           @Override
@@ -148,11 +153,11 @@ public class NodeTraversalTest extends TestCase {
         }
     );
 
-    String code = "" +
-            "var a; " +
-            "function foo() {" +
-            "  var b" +
-            "}";
+    String code = Joiner.on('\n').join(
+        "var a;",
+        "function foo() {",
+        "  var b",
+        "}");
     Node tree = parse(compiler, code);
     t.traverse(tree);
   }
@@ -221,15 +226,15 @@ public class NodeTraversalTest extends TestCase {
 
   public void testGetCurrentNode() {
     Compiler compiler = new Compiler();
-    ScopeCreator creator = new SyntacticScopeCreator(compiler);
+    ScopeCreator creator = SyntacticScopeCreator.makeUntyped(compiler);
     ExpectNodeOnEnterScope callback = new ExpectNodeOnEnterScope();
     NodeTraversal t = new NodeTraversal(compiler, callback, creator);
 
-    String code = "" +
-            "var a; " +
-            "function foo() {" +
-            "  var b;" +
-            "}";
+    String code = Joiner.on('\n').join(
+        "var a;",
+        "function foo() {",
+        "  var b;",
+        "}");
 
     Node tree = parse(compiler, code);
     Scope topScope = creator.createScope(tree, null);
@@ -253,10 +258,40 @@ public class NodeTraversalTest extends TestCase {
     callback.assertEntered();
   }
 
+  public void testTraverseAtScopeWithBlockScope() {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = new CompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    compiler.initOptions(options);
+    ScopeCreator creator = new Es6SyntacticScopeCreator(compiler);
+    ExpectNodeOnEnterScope callback = new ExpectNodeOnEnterScope();
+    NodeTraversal t = new NodeTraversal(compiler, callback, creator);
+
+    String code = Joiner.on('\n').join(
+        "function foo() {",
+        "  if (bar) {",
+        "    let x;",
+        "  }",
+        "}");
+
+    Node tree = parse(compiler, code);
+    Scope topScope = creator.createScope(tree, null);
+
+    Node innerBlock = tree  // script
+        .getFirstChild()    // function
+        .getLastChild()     // function body
+        .getFirstChild()    // if
+        .getLastChild();    // block
+
+    Scope blockScope = creator.createScope(innerBlock, topScope);
+    callback.expect(innerBlock, innerBlock);
+    t.traverseAtScope(blockScope);
+    callback.assertEntered();
+  }
 
   // Helper class used to test getCurrentNode
-  private static class ExpectNodeOnEnterScope implements
-      NodeTraversal.ScopedCallback {
+  private static class ExpectNodeOnEnterScope extends NodeTraversal.AbstractPreOrderCallback
+      implements NodeTraversal.ScopedCallback {
     private Node node;
     private Node scopeRoot;
     private boolean entered = false;
@@ -273,8 +308,8 @@ public class NodeTraversalTest extends TestCase {
 
     @Override
     public void enterScope(NodeTraversal t) {
-      assertEquals(node, t.getCurrentNode());
-      assertEquals(scopeRoot, t.getScopeRoot());
+      assertNode(t.getCurrentNode()).isEqualTo(node);
+      assertNode(t.getScopeRoot()).isEqualTo(scopeRoot);
       entered = true;
     }
 
@@ -286,15 +321,11 @@ public class NodeTraversalTest extends TestCase {
     public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
       return true;
     }
-
-    @Override
-    public void visit(NodeTraversal t, Node n, Node parent) {
-    }
   }
 
   private static Node parse(Compiler compiler, String js) {
     Node n = compiler.parseTestCode(js);
-    assertEquals(0, compiler.getErrorCount());
+    assertThat(compiler.getErrors()).isEmpty();
     return n;
   }
 }

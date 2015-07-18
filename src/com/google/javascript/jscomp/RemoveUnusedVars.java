@@ -18,18 +18,17 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +69,7 @@ import java.util.Set;
  * {@code FlowSensitiveInlineVariables}, except that it works for variables
  * used across scopes.
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 class RemoveUnusedVars
     implements CompilerPass, OptimizeCalls.CallGraphCompilerPass {
@@ -85,17 +85,17 @@ class RemoveUnusedVars
   /**
    * Keep track of variables that we've referenced.
    */
-  private final Set<Var> referenced = Sets.newHashSet();
+  private final Set<Var> referenced = new HashSet<>();
 
   /**
    * Keep track of variables that might be unreferenced.
    */
-  private final List<Var> maybeUnreferenced = Lists.newArrayList();
+  private final List<Var> maybeUnreferenced = new ArrayList<>();
 
   /**
    * Keep track of scopes that we've traversed.
    */
-  private final List<Scope> allFunctionScopes = Lists.newArrayList();
+  private final List<Scope> allFunctionScopes = new ArrayList<>();
 
   /**
    * Keep track of assigns to variables that we haven't referenced.
@@ -106,7 +106,7 @@ class RemoveUnusedVars
   /**
    * The assigns, indexed by the NAME node that they assign to.
    */
-  private final Map<Node, Assign> assignsByNode = Maps.newHashMap();
+  private final Map<Node, Assign> assignsByNode = new HashMap<>();
 
   /**
    * Subclass name -> class-defining call EXPR node. (like inherits)
@@ -171,7 +171,7 @@ class RemoveUnusedVars
    * Traverses a node recursively. Call this once per pass.
    */
   private void traverseAndRemoveUnusedReferences(Node root) {
-    Scope scope = new SyntacticScopeCreator(compiler).createScope(root, null);
+    Scope scope = SyntacticScopeCreator.makeUntyped(compiler).createScope(root, null);
     traverseNode(root, null, scope);
 
     if (removeGlobals) {
@@ -321,11 +321,7 @@ class RemoveUnusedVars
     }
 
     // Exported variables are off-limits.
-    if (codingConvention.isExported(var.getName())) {
-      return false;
-    }
-
-    return true;
+    return !codingConvention.isExported(var.getName());
   }
 
   /**
@@ -344,8 +340,7 @@ class RemoveUnusedVars
     Preconditions.checkState(body.getNext() == null &&
             body.isBlock());
 
-    Scope fnScope =
-        new SyntacticScopeCreator(compiler).createScope(n, parentScope);
+    Scope fnScope = SyntacticScopeCreator.makeUntyped(compiler).createScope(n, parentScope);
     traverseNode(body, n, fnScope);
 
     collectMaybeUnreferencedVars(fnScope);
@@ -424,8 +419,8 @@ class RemoveUnusedVars
   private static class CallSiteOptimizer {
     private final AbstractCompiler compiler;
     private final SimpleDefinitionFinder defFinder;
-    private final List<Node> toRemove = Lists.newArrayList();
-    private final List<Node> toReplaceWithZero = Lists.newArrayList();
+    private final List<Node> toRemove = new ArrayList<>();
+    private final List<Node> toReplaceWithZero = new ArrayList<>();
 
     CallSiteOptimizer(
         AbstractCompiler compiler,

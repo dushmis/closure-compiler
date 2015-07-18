@@ -43,12 +43,12 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * The object type represents instances of JavaScript objects such as
@@ -66,12 +66,13 @@ import java.util.Set;
  * debugging purposes.  Looking up type name references goes through the
  * {@link JSTypeRegistry}.<p>
  */
-class PrototypeObjectType extends ObjectType {
+public class PrototypeObjectType extends ObjectType {
   private static final long serialVersionUID = 1L;
 
   private final String className;
   private final PropertyMap properties;
   private final boolean nativeType;
+  private final boolean anonymousType;
 
   // NOTE(nicksantos): The implicit prototype can change over time.
   // Modeling this is a bear. Always call getImplicitPrototype(), because
@@ -102,7 +103,36 @@ class PrototypeObjectType extends ObjectType {
    */
   PrototypeObjectType(JSTypeRegistry registry, String className,
       ObjectType implicitPrototype) {
-    this(registry, className, implicitPrototype, false, null);
+    this(
+        registry,
+        className,
+        implicitPrototype,
+        false /* nativeType */,
+        null /* templateTypeMap */,
+        false /* anonymousType */);
+  }
+
+  /**
+   * Creates an object type.
+   *
+   * @param className the name of the class.  May be {@code null} to
+   *        denote an anonymous class.
+   *
+   * @param implicitPrototype the implicit prototype
+   *        (a.k.a. {@code [[Prototype]]}) as defined by ECMA-262. If the
+   *        implicit prototype is {@code null} the implicit prototype will be
+   *        set to the {@link JSTypeNative#OBJECT_TYPE}.
+   * @param isAnonymous True if the class is intended to be anonymous.
+   */
+  PrototypeObjectType(JSTypeRegistry registry, String className,
+      ObjectType implicitPrototype, boolean anonymousType) {
+    this(
+        registry,
+        className,
+        implicitPrototype,
+        false /* nativeType */,
+        null /* templateTypeMap */,
+        anonymousType);
   }
 
   /**
@@ -112,12 +142,29 @@ class PrototypeObjectType extends ObjectType {
   PrototypeObjectType(JSTypeRegistry registry, String className,
       ObjectType implicitPrototype, boolean nativeType,
       TemplateTypeMap templateTypeMap) {
+    this(
+        registry,
+        className,
+        implicitPrototype,
+        nativeType,
+        templateTypeMap,
+        false /* anonymousType */);
+  }
+
+  /**
+   * Creates an object type, allowing specification of the implicit prototype,
+   * whether the object is native, and any templatized types.
+   */
+  PrototypeObjectType(JSTypeRegistry registry, String className,
+      ObjectType implicitPrototype, boolean nativeType,
+      TemplateTypeMap templateTypeMap, boolean anonymousType) {
     super(registry, templateTypeMap);
     this.properties = new PropertyMap();
     this.properties.setParentSource(this);
 
     this.className = className;
     this.nativeType = nativeType;
+    this.anonymousType = anonymousType;
     if (nativeType || implicitPrototype != null) {
       setImplicitPrototype(implicitPrototype);
     } else {
@@ -165,6 +212,14 @@ class PrototypeObjectType extends ObjectType {
       if (property != null) {
         property.setJSDocInfo(info);
       }
+    }
+  }
+
+  @Override
+  public void setPropertyNode(String propertyName, Node defSite) {
+    Property property = properties.getOwnProperty(propertyName);
+    if (property != null) {
+      property.setNode(defSite);
     }
   }
 
@@ -231,7 +286,7 @@ class PrototypeObjectType extends ObjectType {
       prettyPrint = false;
 
       // Use a tree set so that the properties are sorted.
-      Set<String> propertyNames = Sets.newTreeSet();
+      Set<String> propertyNames = new TreeSet<>();
       for (ObjectType current = this;
            current != null && !current.isNativeObjectType() &&
                propertyNames.size() <= MAX_PRETTY_PRINTED_PROPERTIES;
@@ -311,6 +366,10 @@ class PrototypeObjectType extends ObjectType {
   @Override
   public boolean hasReferenceName() {
     return className != null || ownerFunction != null;
+  }
+
+  public boolean isAnonymous() {
+    return anonymousType;
   }
 
   @Override
@@ -410,7 +469,7 @@ class PrototypeObjectType extends ObjectType {
   }
 
   @Override
-  JSType resolveInternal(ErrorReporter t, StaticScope<JSType> scope) {
+  JSType resolveInternal(ErrorReporter t, StaticTypedScope<JSType> scope) {
     setResolvedTypeInternal(this);
 
     ObjectType implicitPrototype = getImplicitPrototype();

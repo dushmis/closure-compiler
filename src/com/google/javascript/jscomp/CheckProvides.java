@@ -15,17 +15,17 @@
  */
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Insures '@constructor X' has a 'goog.provide("X")' .
+ * Ensures that '@constructor X' has a 'goog.provide("X")' .
  *
  */
 class CheckProvides implements HotSwapCompilerPass {
@@ -56,8 +56,8 @@ class CheckProvides implements HotSwapCompilerPass {
   }
 
   private class CheckProvidesCallback extends AbstractShallowCallback {
-    private final Map<String, Node> provides = Maps.newHashMap();
-    private final Map<String, Node> ctors = Maps.newHashMap();
+    private final Map<String, Node> provides = new HashMap<>();
+    private final Map<String, Node> ctors = new HashMap<>();
     private final CodingConvention convention;
 
     CheckProvidesCallback(CodingConvention convention){
@@ -77,12 +77,16 @@ class CheckProvides implements HotSwapCompilerPass {
         case Token.FUNCTION:
           visitFunctionNode(n, parent);
           break;
+        case Token.CLASS:
+          visitClassNode(n);
+          break;
         case Token.SCRIPT:
           visitScriptNode();
       }
     }
 
     private void visitFunctionNode(Node n, Node parent) {
+      // TODO(user): Use NodeUtil.getBestJSDocInfo/getFunctionName to recognize all functions.
       Node name = null;
       JSDocInfo info = parent.getJSDocInfo();
       if (info != null && info.isConstructor()) {
@@ -102,6 +106,13 @@ class CheckProvides implements HotSwapCompilerPass {
             ctors.put(qualifiedName, name);
           }
         }
+      }
+    }
+
+    private void visitClassNode(Node classNode) {
+      String name = NodeUtil.getClassName(classNode);
+      if (name != null) {
+        ctors.put(name, classNode);
       }
     }
 

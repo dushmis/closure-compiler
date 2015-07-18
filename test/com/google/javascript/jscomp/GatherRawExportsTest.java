@@ -16,8 +16,7 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Sets;
-
+import com.google.common.collect.ImmutableSet;
 import java.util.Set;
 
 /**
@@ -25,7 +24,7 @@ import java.util.Set;
  *
  * @author johnlenz@google.com (John Lenz)
  */
-public class GatherRawExportsTest extends CompilerTestCase {
+public final class GatherRawExportsTest extends CompilerTestCase {
 
   private static final String EXTERNS = "var window;";
   private GatherRawExports last;
@@ -115,8 +114,24 @@ public class GatherRawExportsTest extends CompilerTestCase {
     assertExported("top.a", "a");
   }
 
+  public void testExportOnGoogGlobalFound1() {
+    assertExported("goog.global['a']", "a");
+  }
+
+  public void testExportOnGoogGlobalFound2() {
+    assertExported("goog.global.a", "a");
+  }
+
+  public void testExportOnGoogGlobalFound3() {
+    assertExported("goog$global['a']", "a");
+  }
+
+  public void testExportOnGoogGlobalFound4() {
+    assertExported("goog$global.a", "a");
+  }
+
   private void assertExported(String js, String ... names) {
-    Set<String> setNames = Sets.newHashSet(names);
+    Set<String> setNames = ImmutableSet.copyOf(names);
     testSame(js);
     assertEquals(setNames, last.getExportedVariableNames());
   }

@@ -18,23 +18,22 @@ package com.google.javascript.jscomp;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
+
 import junit.framework.TestCase;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
  * Tests for error message filtering.
  * @author nicksantos@google.com (Nick Santos)
  */
-public class RhinoErrorReporterTest extends TestCase {
+public final class RhinoErrorReporterTest extends TestCase {
 
-  private boolean reportMisplacedTypeAnnotations;
   private boolean reportEs3Props;
 
   @Override
   protected void setUp() throws Exception {
-    reportMisplacedTypeAnnotations = false;
     reportEs3Props = true;
     super.setUp();
   }
@@ -58,25 +57,6 @@ public class RhinoErrorReporterTest extends TestCase {
 
     assertEquals(2, error.getLineNumber());
     assertEquals(8, error.getCharno());
-  }
-
-  public void testMisplacedTypeAnnotation() throws Exception {
-    reportMisplacedTypeAnnotations = false;
-
-    assertNoWarningOrError("var x = /** @type {string} */ y;");
-
-    reportMisplacedTypeAnnotations = true;
-
-    String message =
-        "Type annotations are not allowed here. " +
-        "Are you missing parentheses?";
-    JSError error = assertWarning(
-        "var x = /** @type {string} */ y;",
-        RhinoErrorReporter.MISPLACED_TYPE_ANNOTATION,
-        message);
-
-    assertEquals(1, error.getLineNumber());
-    assertEquals(30, error.getCharno());
   }
 
   public void testInvalidEs3Prop() throws Exception {
@@ -118,7 +98,7 @@ public class RhinoErrorReporterTest extends TestCase {
     assertEquals("Expected error", 1, compiler.getErrorCount());
 
     JSError error =
-        Iterables.getOnlyElement(Lists.newArrayList(compiler.getErrors()));
+        Iterables.getOnlyElement(Arrays.asList(compiler.getErrors()));
     assertEquals(type, error.getType());
     assertEquals(description, error.description);
     return error;
@@ -133,7 +113,7 @@ public class RhinoErrorReporterTest extends TestCase {
     assertEquals("Expected warning", 1, compiler.getWarningCount());
 
     JSError error =
-        Iterables.getOnlyElement(Lists.newArrayList(compiler.getWarnings()));
+        Iterables.getOnlyElement(Arrays.asList(compiler.getWarnings()));
     assertEquals(type, error.getType());
     assertEquals(description, error.description);
     return error;
@@ -142,11 +122,6 @@ public class RhinoErrorReporterTest extends TestCase {
   private Compiler parseCode(String code) {
     Compiler compiler = new Compiler();
     CompilerOptions options = new CompilerOptions();
-    if (reportMisplacedTypeAnnotations) {
-      options.setWarningLevel(
-          DiagnosticGroups.MISPLACED_TYPE_ANNOTATION,
-          CheckLevel.WARNING);
-    }
 
     if (!reportEs3Props) {
       options.setWarningLevel(

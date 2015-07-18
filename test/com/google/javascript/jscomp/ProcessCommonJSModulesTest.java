@@ -17,15 +17,15 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Unit tests for {@link ProcessCommonJSModules}
  */
 
-public class ProcessCommonJSModulesTest extends CompilerTestCase {
+public final class ProcessCommonJSModulesTest extends CompilerTestCase {
 
   public ProcessCommonJSModulesTest() {
     compareJsDoc = false;
@@ -35,7 +35,7 @@ public class ProcessCommonJSModulesTest extends CompilerTestCase {
   protected CompilerPass getProcessor(Compiler compiler) {
     return new ProcessCommonJSModules(
         compiler,
-        ES6ModuleLoader.createNaiveLoader(compiler, "foo/bar/"),
+        new ES6ModuleLoader(compiler, "foo/bar/"),
         false);
   }
 
@@ -131,6 +131,17 @@ public class ProcessCommonJSModulesTest extends CompilerTestCase {
         "module$test_test.foo = 1;");
   }
 
+  public void testIndex() {
+    setFilename("foo/index.js");
+    test(
+        "var name = require('../name'); exports.bar = 1;",
+        "goog.provide('module$foo$index');" +
+        "var module$foo$index = {};" +
+        "goog.require('module$name');" +
+        "var name$$module$foo$index = module$name;" +
+        "module$foo$index.bar = 1;");
+  }
+
   public void testModuleName() {
     setFilename("foo/bar");
     test(
@@ -176,11 +187,11 @@ public class ProcessCommonJSModulesTest extends CompilerTestCase {
     compiler.initCompilerOptionsIfTesting();
     compiler.getOptions().setProcessCommonJSModules(true);
     compiler.getOptions().dependencyOptions.setEntryPoints(
-        Lists.newArrayList(ProcessCommonJSModules.toModuleName("a")));
-    compiler.compile(Lists.newArrayList(SourceFile.fromCode("externs.js", "")),
+        ImmutableList.of(ProcessCommonJSModules.toModuleName("a")));
+    compiler.compile(ImmutableList.of(SourceFile.fromCode("externs.js", "")),
         shuffled, compiler.getOptions());
 
-    List<SourceFile> result = Lists.newArrayList();
+    List<SourceFile> result = new ArrayList<>();
     for (JSModule m : compiler.getModuleGraph().getAllModules()) {
       for (CompilerInput i : m.getInputs()) {
         result.add(i.getSourceFile());

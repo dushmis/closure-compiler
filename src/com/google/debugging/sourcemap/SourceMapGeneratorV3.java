@@ -17,14 +17,12 @@
 package com.google.debugging.sourcemap;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.debugging.sourcemap.SourceMapConsumerV3.EntryVisitor;
-
-import org.json.JSONObject;
+import com.google.gson.Gson;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,7 +40,7 @@ import javax.annotation.Nullable;
  *
  * @author johnlenz@google.com (John Lenz)
  */
-public class SourceMapGeneratorV3 implements SourceMapGenerator {
+public final class SourceMapGeneratorV3 implements SourceMapGenerator {
 
   /**
    * This interface provides the merging strategy when an extension conflict
@@ -70,19 +68,19 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
   /**
    * A pre-order traversal ordered list of mappings stored in this map.
    */
-  private List<Mapping> mappings = Lists.newArrayList();
+  private List<Mapping> mappings = new ArrayList<>();
 
   /**
    * A map of source names to source name index
    */
   private LinkedHashMap<String, Integer> sourceFileMap =
-      Maps.newLinkedHashMap();
+       new LinkedHashMap<>();
 
   /**
    * A map of source names to source name index
    */
   private LinkedHashMap<String, Integer> originalNameMap =
-      Maps.newLinkedHashMap();
+       new LinkedHashMap<>();
 
   /**
    * Cache of the last mappings source name.
@@ -114,10 +112,10 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
 
   /**
    * A list of extensions to be added to sourcemap. The value is a object
-   * to permit single values, like strings or numbers, and JSONObject or
-   * JSONArray objects.
+   * to permit single values, like strings or numbers, and JsonObject or
+   * JsonArray objects.
    */
-  private LinkedHashMap<String, Object> extensions = Maps.newLinkedHashMap();
+  private LinkedHashMap<String, Object> extensions = new LinkedHashMap<>();
 
   /**
    * The source root path for relocating source fails or avoid duplicate values
@@ -254,7 +252,7 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
       Preconditions.checkState(nextLine > lastLine
           || (nextLine == lastLine && nextColumn >= lastColumn),
           "Incorrect source mappings order, previous : (%s,%s)\n"
-          + "new : (%s,%s)\nnode : %s",
+          + "new : (%s,%s)",
           lastLine, lastColumn, nextLine, nextColumn);
     }
 
@@ -353,13 +351,13 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
    */
   @Override
   public void appendTo(Appendable out, String name) throws IOException {
-    int maxLine = prepMappings();
+    int maxLine = prepMappings() + 1;
 
     // Add the header fields.
     out.append("{\n");
     appendFirstField(out, "version", "3");
     appendField(out, "file", escapeString(name));
-    appendField(out, "lineCount", String.valueOf(maxLine + 1));
+    appendField(out, "lineCount", String.valueOf(maxLine));
 
     //optional source root
     if (this.sourceRootPath != null && !this.sourceRootPath.isEmpty()) {
@@ -369,7 +367,8 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
     // Add the mappings themselves.
     appendFieldStart(out, "mappings");
     // out.append("[");
-    (new LineMapper(out)).appendLineMappings();
+    (new LineMapper(out, maxLine)).appendLineMappings();
+
     // out.append("]");
     appendFieldEnd(out);
 
@@ -392,7 +391,7 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
       Object objValue = this.extensions.get(key);
       String value = objValue.toString();
       if (objValue instanceof String){
-        value = JSONObject.quote(value);
+        value = new Gson().toJson(value);
       }
       appendField(out, key, value);
     }
@@ -413,8 +412,7 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
 
   /**
    * Adds field extensions to the json source map. The value is allowed to be
-   * any value accepted by json, eg. string, JSONObject, JSONArray, etc.
-   * {@link org.json.JSONObject#put(String, Object)}
+   * any value accepted by json, eg. string, JsonObject, JsonArray, etc.
    *
    * Extensions must follow the format x_orgranization_field (based on V3
    * proposal), otherwise a {@code SourceMapParseExtension} will be thrown.
@@ -839,6 +837,7 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
   private class LineMapper implements MappingVisitor {
     // The destination.
     private final Appendable out;
+    private final int maxLine; // TODO(johnlenz): This shouldn't be necessary to track.
 
     private int previousLine = -1;
     private int previousColumn = 0;
@@ -849,8 +848,9 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
     private int previousSourceColumn;
     private int previousNameId;
 
-    LineMapper(Appendable out) {
+    LineMapper(Appendable out, int maxLine) {
       this.out = out;
+      this.maxLine = maxLine;
     }
 
     /**
@@ -859,21 +859,27 @@ public class SourceMapGeneratorV3 implements SourceMapGenerator {
     @Override
     public void visit(Mapping m, int line, int col, int nextLine, int nextCol)
       throws IOException {
-
       if (previousLine != line) {
         previousColumn = 0;
       }
 
       if (line != nextLine || col != nextCol) {
-        if (previousLine == line) { // not the first entry for the line
-          out.append(',');
+        // TODO(johnlenz): For some reason, we have mappings beyond the max line.
+        // So far they're just null mappings and we can ignore them.
+        // (If they're non-null, we assert-fail.)
+        if (line < maxLine) {
+          if (previousLine == line) { // not the first entry for the line
+            out.append(',');
+          }
+          writeEntry(m, col);
+          previousLine = line;
+          previousColumn = col;
+        } else {
+          Preconditions.checkState(m == null);
         }
-        writeEntry(m, col);
-        previousLine = line;
-        previousColumn = col;
       }
 
-      for (int i = line; i <= nextLine; i++) {
+      for (int i = line; i <= nextLine && i < maxLine; i++) {
         if (i == nextLine) {
           break;
         }

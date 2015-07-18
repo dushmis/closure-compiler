@@ -16,10 +16,10 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -27,7 +27,7 @@ import java.util.Map;
  *
  */
 
-public class AmbiguatePropertiesTest extends CompilerTestCase {
+public final class AmbiguatePropertiesTest extends CompilerTestCase {
   private AmbiguateProperties lastPass;
 
   private static final String EXTERNS =
@@ -50,7 +50,8 @@ public class AmbiguatePropertiesTest extends CompilerTestCase {
     return new CompilerPass() {
       @Override
       public void process(Node externs, Node root) {
-        lastPass = new AmbiguateProperties(compiler, new char[]{'$'});
+        lastPass = AmbiguateProperties.makePassForTesting(
+            compiler, new char[]{'$'});
         lastPass.process(externs, root);
       }
     };
@@ -460,7 +461,7 @@ public class AmbiguatePropertiesTest extends CompilerTestCase {
         + "Foo.prototype.c=0;";
     test(js, output);
 
-    Map<String, String> answerMap = Maps.newHashMap();
+    Map<String, String> answerMap = new HashMap<>();
     answerMap.put("x", "b");
     answerMap.put("y", "c");
     answerMap.put("z", "a");

@@ -29,6 +29,7 @@
  * @see http://www.w3.org/TR/XMLHttpRequest2/
  *
  * @externs
+ * @author stevey@google.com (Steve Yegge)
  */
 
 
@@ -412,5 +413,6 @@ function FormData(opt_form) {}
 /**
  * @param {string} name
  * @param {Blob|string} value
+ * @param {string=} opt_filename
  */
-FormData.prototype.append = function(name, value) {};
+FormData.prototype.append = function(name, value, opt_filename) {};

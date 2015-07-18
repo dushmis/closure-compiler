@@ -16,16 +16,18 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.javascript.jscomp.CompilerOptions.AliasTransformation;
 import com.google.javascript.jscomp.CompilerOptions.AliasTransformationHandler;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SourcePosition;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +36,7 @@ import java.util.Map;
  *
  * @author robbyw@google.com (Robby Walker)
  */
-public class ScopedAliasesTest extends CompilerTestCase {
+public final class ScopedAliasesTest extends CompilerTestCase {
 
   private static final String GOOG_SCOPE_START_BLOCK =
       "goog.scope(function() {";
@@ -59,12 +61,34 @@ public class ScopedAliasesTest extends CompilerTestCase {
     disableTypeCheck();
   }
 
-  private void testScoped(String code, String expected) {
+  private void testScoped(String code, String expected, LanguageMode lang) {
+    setAcceptedLanguage(lang);
     test(GOOG_SCOPE_START_BLOCK + code + GOOG_SCOPE_END_BLOCK, expected);
   }
 
+  private void testScoped(String code, String expected) {
+    testScoped(code, expected, LanguageMode.ECMASCRIPT3);
+    testScoped(code, expected, LanguageMode.ECMASCRIPT6);
+  }
+
+  private void testScopedNoChanges(String aliases, String code, LanguageMode lang) {
+    setAcceptedLanguage(lang);
+    testScoped(aliases + code, code, lang);
+  }
+
   private void testScopedNoChanges(String aliases, String code) {
-    testScoped(aliases + code, code);
+    testScopedNoChanges(aliases, code, LanguageMode.ECMASCRIPT3);
+    testScopedNoChanges(aliases, code, LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testLet() {
+    testScoped("let d = goog.dom; d.createElement(DIV);",
+        "goog.dom.createElement(DIV)", LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testConst() {
+    testScoped("const d = goog.dom; d.createElement(DIV);",
+        "goog.dom.createElement(DIV)", LanguageMode.ECMASCRIPT6);
   }
 
   public void testOneLevel() {
@@ -230,67 +254,202 @@ public class ScopedAliasesTest extends CompilerTestCase {
          "goog.bar.newMethod2=function(goog$$1, b){return goog.bar + b};");
   }
 
+  public void testFunctionDeclarationInScope() {
+    testScoped("var foo = function() {};", SCOPE_NAMESPACE + "$jscomp.scope.foo = function() {};");
+  }
+
+  public void testFunctionDeclarationInScope_letConst() {
+    testScoped(
+        "var baz = goog.bar; let foo = function() {return baz;};",
+        SCOPE_NAMESPACE + "$jscomp.scope.foo = function() {return goog.bar;};",
+        LanguageMode.ECMASCRIPT6);
+    testScoped(
+        "var baz = goog.bar; const foo = function() {return baz;};",
+        SCOPE_NAMESPACE + "$jscomp.scope.foo = function() {return goog.bar;};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testLetConstShadowing() {
+    testScoped(
+        "var foo = goog.bar; var f = function() {"
+            + "let foo = baz; return foo;};",
+        SCOPE_NAMESPACE + "$jscomp.scope.f = function() {"
+            + "let foo = baz; return foo;};",
+        LanguageMode.ECMASCRIPT6);
+    testScoped(
+        "var foo = goog.bar; var f = function() {"
+            + "const foo = baz; return foo;};",
+        SCOPE_NAMESPACE + "$jscomp.scope.f = function() {"
+            + "const foo = baz; return foo;};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testYieldExpression() {
+    testScoped("var foo = goog.bar; var f = function*() {yield foo;};",
+        SCOPE_NAMESPACE + "$jscomp.scope.f = function*() {yield goog.bar;};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testDestructuringError() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testScopedError("var [x] = [1];",
+        ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+  }
+
+  public void testObjectDescructuringError1() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testScopedError("var {x} = {x: 1};",
+        ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+  }
+
+  public void testObjectDescructuringError2() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testScopedError("var {x: y} = {x: 1};",
+        ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+  }
+
+  public void testNonTopLevelDestructuring() {
+    testScoped("var f = function() {var [x, y] = [1, 2];};",
+        SCOPE_NAMESPACE + "$jscomp.scope.f = function() {var [x, y] = [1, 2];};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testArrowFunction() {
+    testScoped(
+        "var foo = goog.bar; var v = (x => x + foo);",
+        SCOPE_NAMESPACE + "$jscomp.scope.v = (x => x + goog.bar)",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testClassDefinition1() {
+    testScoped(
+        "class Foo {}", SCOPE_NAMESPACE + "$jscomp.scope.Foo=class{}", LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testClassDefinition2() {
+    testScoped(
+        "var bar = goog.bar;" + "class Foo { constructor() { this.x = bar; }}",
+        SCOPE_NAMESPACE + "$jscomp.scope.Foo = class { constructor() { this.x = goog.bar; } }",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testClassDefinition3() {
+    testScoped(
+        "var bar = {};" + "bar.Foo = class {};",
+        SCOPE_NAMESPACE + "$jscomp.scope.bar = {}; $jscomp.scope.bar.Foo = class {}",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testClassDefinition_letConst() {
+    testScoped(
+        "let bar = {};" + "bar.Foo = class {};",
+        SCOPE_NAMESPACE + "$jscomp.scope.bar = {}; $jscomp.scope.bar.Foo = class {}",
+        LanguageMode.ECMASCRIPT6);
+    testScoped(
+        "const bar = {};" + "bar.Foo = class {};",
+        SCOPE_NAMESPACE + "$jscomp.scope.bar = {}; $jscomp.scope.bar.Foo = class {}",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testDefaultParameter() {
+    testScoped(
+        "var foo = goog.bar; var f = function(y=foo) {};",
+        SCOPE_NAMESPACE + "$jscomp.scope.f = function(y=goog.bar) {};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
   /**
    * Make sure we don't hit an IllegalStateException for this case.
    * @see https://github.com/google/closure-compiler/issues/400
    */
   public void testObjectLiteral() {
-    testScoped(Joiner.on('\n').join(
-        "var Foo = goog.Foo;",
-        "goog.x = {",
-        "  /** @param {Foo} foo */",
-        "  y: function(foo) { }",
-        "};"),
+    testScoped(
+        LINE_JOINER.join(
+            "var Foo = goog.Foo;",
+            "goog.x = {",
+            "  /** @param {Foo} foo */",
+            "  y: function(foo) { }",
+            "};"),
         "goog.x = {y: function(foo) { }};");
 
-    testScoped(Joiner.on('\n').join(
-        "var Foo = goog.Foo;",
-        "goog.x = {",
-        "  y:",
-        "  /** @param {Foo} foo */ function(foo) {}",
-        "};"),
+    testScoped(
+        LINE_JOINER.join(
+            "var Foo = goog.Foo;",
+            "goog.x = {",
+            "  y:",
+            "  /** @param {Foo} foo */ function(foo) {}",
+            "};"),
         "goog.x = {y: function(foo) {}};");
 
-    testScoped(Joiner.on('\n').join(
-        "var Foo = goog.Foo;",
-        "goog.x = {",
-        "  y:",
-        "  /** @type {function(Foo)} */ (function(foo) {})",
-        "};"),
+    testScoped(
+        LINE_JOINER.join(
+            "var Foo = goog.Foo;",
+            "goog.x = {",
+            "  y:",
+            "  /** @type {function(Foo)} */ (function(foo) {})",
+            "};"),
         "goog.x = {y: /** @type {function(Foo)} */ (function(foo) {})};");
-  };
+  }
+
+  public void testObjectLiteralShorthand() {
+    testScoped(
+        "var bar = goog.bar; var Foo = {bar};",
+        SCOPE_NAMESPACE + "$jscomp.scope.Foo={bar: goog.bar};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testObjectLiteralMethods() {
+    testScoped(
+        "var foo = goog.bar; var obj = {toString() {return foo}};",
+        SCOPE_NAMESPACE + "$jscomp.scope.obj = {toString() {return goog.bar}};",
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testObjectLiteralComputedPropertyNames() {
+    testScoped(
+        "var foo = goog.bar; var obj = {[(() => foo)()]: baz};",
+        SCOPE_NAMESPACE + "$jscomp.scope.obj = {[(() => goog.bar)()]:baz};",
+        LanguageMode.ECMASCRIPT6);
+    testScoped(
+        "var foo = goog.bar; var obj = {[x => x + foo]: baz};",
+        SCOPE_NAMESPACE + "$jscomp.scope.obj = {[x => x + goog.bar]:baz};",
+        LanguageMode.ECMASCRIPT6);
+  }
 
   public void testJsDocNotIgnored() {
     enableTypeCheck(CheckLevel.WARNING);
     runTypeCheckAfterProcessing = true;
 
-    String externs = Joiner.on('\n').join(
-        "var ns;",
-        "/** @constructor */",
-        "ns.Foo;",
-        "",
-        "var goog;",
-        "/** @param {function()} fn */",
-        "goog.scope = function(fn) {}");
+    String externs =
+        LINE_JOINER.join(
+            "var ns;",
+            "/** @constructor */",
+            "ns.Foo;",
+            "",
+            "var goog;",
+            "/** @param {function()} fn */",
+            "goog.scope = function(fn) {}");
 
-    String js = Joiner.on('\n').join(
-        "goog.scope(function() {",
-        "  var Foo = ns.Foo;",
-        "  var x = {",
-        "    /** @param {Foo} foo */ y: function(foo) {}",
-        "  };",
-        "  x.y('');",
-        "});");
+    String js =
+        LINE_JOINER.join(
+            "goog.scope(function() {",
+            "  var Foo = ns.Foo;",
+            "  var x = {",
+            "    /** @param {Foo} foo */ y: function(foo) {}",
+            "  };",
+            "  x.y('');",
+            "});");
     test(externs, js, null, null, TypeValidator.TYPE_MISMATCH_WARNING);
 
-    js = Joiner.on('\n').join(
-        "goog.scope(function() {",
-        "  var Foo = ns.Foo;",
-        "  var x = {",
-        "    y: /** @param {Foo} foo */ function(foo) {}",
-        "  };",
-        "  x.y('');",
-        "});");
+    js =
+        LINE_JOINER.join(
+            "goog.scope(function() {",
+            "  var Foo = ns.Foo;",
+            "  var x = {",
+            "    y: /** @param {Foo} foo */ function(foo) {}",
+            "  };",
+            "  x.y('');",
+            "});");
     test(externs, js, null, null, TypeValidator.TYPE_MISMATCH_WARNING);
   }
 
@@ -408,6 +567,25 @@ public class ScopedAliasesTest extends CompilerTestCase {
         ""
         + "/** @typedef {x} */ types.actual;"
         + "/** @typedef {goog.Timer} */ types.expected;");
+
+    testScoped(
+        LINE_JOINER.join(
+            "/** @typedef {string} */ var s;",
+            "/** @type {s} */ var t;"),
+        LINE_JOINER.join(
+            SCOPE_NAMESPACE,
+            "/** @typedef {string} */ $jscomp.scope.s;",
+            "/** @type {$jscomp.scope.s} */ $jscomp.scope.t;"));
+
+    testScoped(
+        LINE_JOINER.join(
+            "/** @typedef {string} */ let s;",
+            "/** @type {s} */ var t;"),
+        LINE_JOINER.join(
+            SCOPE_NAMESPACE,
+            "/** @typedef {string} */ $jscomp.scope.s;",
+            "/** @type {$jscomp.scope.s} */ $jscomp.scope.t;"),
+        LanguageMode.ECMASCRIPT6);
   }
 
   public void testJsDocRecord() {
@@ -525,24 +703,18 @@ public class ScopedAliasesTest extends CompilerTestCase {
 
   // FAILURE CASES
 
-  private void testFailure(String code, DiagnosticType expectedError) {
-    test(code, null, expectedError);
-  }
-
-  private void testScopedFailure(String code, DiagnosticType expectedError) {
-    test("goog.scope(function() {" + code + "});", null, expectedError);
+  private void testScopedError(String code, DiagnosticType expectedError) {
+    testError("goog.scope(function() {" + code + "});", expectedError);
   }
 
   public void testScopedThis() {
-    testScopedFailure("this.y = 10;", ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
-    testScopedFailure("var x = this;",
-        ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
-    testScopedFailure("fn(this);", ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
+    testScopedError("this.y = 10;", ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
+    testScopedError("var x = this;", ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
+    testScopedError("fn(this);", ScopedAliases.GOOG_SCOPE_REFERENCES_THIS);
   }
 
   public void testAliasRedefinition() {
-    testScopedFailure("var x = goog.dom; x = goog.events;",
-        ScopedAliases.GOOG_SCOPE_ALIAS_REDEFINED);
+    testScopedError("var x = goog.dom; x = goog.events;", ScopedAliases.GOOG_SCOPE_ALIAS_REDEFINED);
   }
 
   public void testAliasNonRedefinition() {
@@ -564,48 +736,44 @@ public class ScopedAliasesTest extends CompilerTestCase {
   }
 
   public void testAliasCycle() {
-    test("var x = {y: {}};" +
+    testError("var x = {y: {}};" +
          "goog.scope(function() {" +
          "  var y = z.x;" +
          "  var z = y.x;" +
          "  y.ClassA = function() {};" +
          "  z.ClassB = function() {};" +
-         "});", null,
+         "});",
          ScopedAliases.GOOG_SCOPE_ALIAS_CYCLE);
   }
 
   public void testScopedReturn() {
-    testScopedFailure("return;", ScopedAliases.GOOG_SCOPE_USES_RETURN);
-    testScopedFailure("var x = goog.dom; return;",
-        ScopedAliases.GOOG_SCOPE_USES_RETURN);
+    testScopedError("return;", ScopedAliases.GOOG_SCOPE_USES_RETURN);
+    testScopedError("var x = goog.dom; return;", ScopedAliases.GOOG_SCOPE_USES_RETURN);
   }
 
   public void testScopedThrow() {
-    testScopedFailure("throw 'error';", ScopedAliases.GOOG_SCOPE_USES_THROW);
+    testScopedError("throw 'error';", ScopedAliases.GOOG_SCOPE_USES_THROW);
   }
 
   public void testUsedImproperly() {
-    testFailure("var x = goog.scope(function() {});",
-        ScopedAliases.GOOG_SCOPE_USED_IMPROPERLY);
+    testError("var x = goog.scope(function() {});", ScopedAliases.GOOG_SCOPE_MUST_BE_ALONE);
+    testError("var f = function() { goog.scope(function() {}); }",
+        ScopedAliases.GOOG_SCOPE_MUST_BE_IN_GLOBAL_SCOPE);
   }
 
   public void testBadParameters() {
-    testFailure("goog.scope()", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
-    testFailure("goog.scope(10)", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
-    testFailure("goog.scope(function() {}, 10)",
-        ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
-    testFailure("goog.scope(function z() {})",
-        ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
-    testFailure("goog.scope(function(a, b, c) {})",
-        ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
+    testError("goog.scope()", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
+    testError("goog.scope(10)", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
+    testError("goog.scope(function() {}, 10)", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
+    testError("goog.scope(function z() {})", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
+    testError("goog.scope(function(a, b, c) {})", ScopedAliases.GOOG_SCOPE_HAS_BAD_PARAMETERS);
   }
 
   public void testNonAliasLocal() {
-    testScopedFailure("try { } catch (e) {}",
-        ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
-
-    testScopedFailure("for (var k in { a: 1, b: 2 }) {}",
-        ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+    testScopedError("try { } catch (e) {}", ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+    testScopedError("for (var k in { a: 1, b: 2 }) {}", ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    testScopedError("for (var k of [1, 2, 3]) {}", ScopedAliases.GOOG_SCOPE_NON_ALIAS_LOCAL);
   }
 
   public void testOkAliasLocal() {
@@ -621,11 +789,22 @@ public class ScopedAliasesTest extends CompilerTestCase {
                "    return $jscomp.scope.x + $jscomp.scope.y; }");
   }
 
+  public void testOkAliasLocal_letConst() {
+    testScoped("let x = 10;",
+               SCOPE_NAMESPACE + "$jscomp.scope.x = 10",
+               LanguageMode.ECMASCRIPT6);
+    testScoped("const x = 10;",
+               SCOPE_NAMESPACE + "$jscomp.scope.x = 10",
+               LanguageMode.ECMASCRIPT6);
+  }
+
   public void testFunctionDeclaration() {
-    testScoped("if (x) { function f() {} } g(f)",
-               SCOPE_NAMESPACE +
-               "if (x) { $jscomp.scope.f = function () {}; } " +
-               "g($jscomp.scope.f); ");
+    testScoped(
+        "if (x) { function f() {} } g(f)",
+        SCOPE_NAMESPACE
+        + "if (x) { $jscomp.scope.f = function () {}; } "
+        + "g($jscomp.scope.f); ",
+        LanguageMode.ECMASCRIPT3);
   }
 
   public void testHoistedFunctionDeclaration() {
@@ -636,8 +815,7 @@ public class ScopedAliasesTest extends CompilerTestCase {
   }
 
   public void testAliasReassign() {
-    testScopedFailure("var x = 3; x = 5;",
-        ScopedAliases.GOOG_SCOPE_ALIAS_REDEFINED);
+    testScopedError("var x = 3; x = 5;", ScopedAliases.GOOG_SCOPE_ALIAS_REDEFINED);
   }
 
   public void testMultipleLocals() {
@@ -688,11 +866,12 @@ public class ScopedAliasesTest extends CompilerTestCase {
     enableTypeCheck(CheckLevel.WARNING);
     runTypeCheckAfterProcessing = true;
 
-    String js = Joiner.on('\n').join(
-      "goog.scope(function () {",
-      "  /** @constructor */ function F() {}",
-      "  /** @return {F} */ function createFoo() { return 1; }",
-      "});");
+    String js =
+        LINE_JOINER.join(
+            "goog.scope(function () {",
+            "  /** @constructor */ function F() {}",
+            "  /** @return {F} */ function createFoo() { return 1; }",
+            "});");
 
     test(js,
          SCOPE_NAMESPACE +
@@ -711,7 +890,7 @@ public class ScopedAliasesTest extends CompilerTestCase {
     transformationHandler = spy;
     test(fullJsCode, fullJsCode);
 
-    assertTrue(spy.observedPositions.isEmpty());
+    assertThat(spy.observedPositions).isEmpty();
   }
 
   public void testRecordOneAlias() {
@@ -724,15 +903,14 @@ public class ScopedAliasesTest extends CompilerTestCase {
     transformationHandler = spy;
     test(fullJsCode, expectedJsCode);
 
-    assertTrue(spy.observedPositions.containsKey("testcode"));
-    List<SourcePosition<AliasTransformation>> positions =
-        spy.observedPositions.get("testcode");
-    assertEquals(1, positions.size());
+    assertThat(spy.observedPositions).containsKey("testcode");
+    List<SourcePosition<AliasTransformation>> positions = spy.observedPositions.get("testcode");
+    assertThat(positions).hasSize(1);
     verifyAliasTransformationPosition(1, 0, 2, 1, positions.get(0));
 
-    assertEquals(1, spy.constructedAliases.size());
+    assertThat(spy.constructedAliases).hasSize(1);
     AliasSpy aliasSpy = (AliasSpy) spy.constructedAliases.get(0);
-    assertEquals("goog", aliasSpy.observedDefinitions.get("g"));
+    assertThat(aliasSpy.observedDefinitions).containsEntry("g", "goog");
   }
 
   public void testRecordOneAlias2() {
@@ -745,15 +923,14 @@ public class ScopedAliasesTest extends CompilerTestCase {
     transformationHandler = spy;
     test(fullJsCode, expectedJsCode);
 
-    assertTrue(spy.observedPositions.containsKey("testcode"));
-    List<SourcePosition<AliasTransformation>> positions =
-        spy.observedPositions.get("testcode");
-    assertEquals(1, positions.size());
+    assertThat(spy.observedPositions).containsKey("testcode");
+    List<SourcePosition<AliasTransformation>> positions = spy.observedPositions.get("testcode");
+    assertThat(positions).hasSize(1);
     verifyAliasTransformationPosition(1, 0, 2, 1, positions.get(0));
 
-    assertEquals(1, spy.constructedAliases.size());
+    assertThat(spy.constructedAliases).hasSize(1);
     AliasSpy aliasSpy = (AliasSpy) spy.constructedAliases.get(0);
-    assertEquals("goog", aliasSpy.observedDefinitions.get("g$1"));
+    assertThat(aliasSpy.observedDefinitions).containsEntry("g$1", "goog");
   }
 
   public void testRecordMultipleAliases() {
@@ -767,17 +944,16 @@ public class ScopedAliasesTest extends CompilerTestCase {
     transformationHandler = spy;
     test(fullJsCode, expectedJsCode);
 
-    assertTrue(spy.observedPositions.containsKey("testcode"));
-    List<SourcePosition<AliasTransformation>> positions =
-        spy.observedPositions.get("testcode");
-    assertEquals(1, positions.size());
+    assertThat(spy.observedPositions).containsKey("testcode");
+    List<SourcePosition<AliasTransformation>> positions = spy.observedPositions.get("testcode");
+    assertThat(positions).hasSize(1);
     verifyAliasTransformationPosition(1, 0, 3, 1, positions.get(0));
 
-    assertEquals(1, spy.constructedAliases.size());
+    assertThat(spy.constructedAliases).hasSize(1);
     AliasSpy aliasSpy = (AliasSpy) spy.constructedAliases.get(0);
-    assertEquals("goog", aliasSpy.observedDefinitions.get("g"));
-    assertEquals("g.bar", aliasSpy.observedDefinitions.get("b"));
-    assertEquals("goog.something.foo", aliasSpy.observedDefinitions.get("f"));
+    assertThat(aliasSpy.observedDefinitions).containsEntry("g", "goog");
+    assertThat(aliasSpy.observedDefinitions).containsEntry("b", "g.bar");
+    assertThat(aliasSpy.observedDefinitions).containsEntry("f", "goog.something.foo");
   }
 
   public void testRecordAliasFromMultipleGoogScope() {
@@ -797,21 +973,20 @@ public class ScopedAliasesTest extends CompilerTestCase {
     test(fullJsCode, expectedJsCode);
 
 
-    assertTrue(spy.observedPositions.containsKey("testcode"));
-    List<SourcePosition<AliasTransformation>> positions =
-        spy.observedPositions.get("testcode");
-    assertEquals(2, positions.size());
+    assertThat(spy.observedPositions).containsKey("testcode");
+    List<SourcePosition<AliasTransformation>> positions = spy.observedPositions.get("testcode");
+    assertThat(positions).hasSize(2);
 
     verifyAliasTransformationPosition(1, 0, 6, 0, positions.get(0));
 
     verifyAliasTransformationPosition(8, 0, 11, 4, positions.get(1));
 
-    assertEquals(2, spy.constructedAliases.size());
+    assertThat(spy.constructedAliases).hasSize(2);
     AliasSpy aliasSpy = (AliasSpy) spy.constructedAliases.get(0);
-    assertEquals("goog", aliasSpy.observedDefinitions.get("g"));
+    assertThat(aliasSpy.observedDefinitions).containsEntry("g", "goog");
 
     aliasSpy = (AliasSpy) spy.constructedAliases.get(1);
-    assertEquals("namespace.Zoo", aliasSpy.observedDefinitions.get("z"));
+    assertThat(aliasSpy.observedDefinitions).containsEntry("z", "namespace.Zoo");
   }
 
   private void verifyAliasTransformationPosition(int startLine, int startChar,
@@ -838,18 +1013,18 @@ public class ScopedAliasesTest extends CompilerTestCase {
   private static class TransformationHandlerSpy
       implements AliasTransformationHandler {
 
-    private final Map<String, List<SourcePosition<AliasTransformation>>>
-        observedPositions = Maps.newHashMap();
+    private final Map<String, List<SourcePosition<AliasTransformation>>> observedPositions =
+        new HashMap<>();
 
     public final List<AliasTransformation> constructedAliases =
-        Lists.newArrayList();
+         new ArrayList<>();
 
     @Override
     public AliasTransformation logAliasTransformation(
         String sourceFile, SourcePosition<AliasTransformation> position) {
       if (!observedPositions.containsKey(sourceFile)) {
         observedPositions.put(sourceFile,
-            Lists.<SourcePosition<AliasTransformation>> newArrayList());
+             new ArrayList<SourcePosition<AliasTransformation>>());
       }
       observedPositions.get(sourceFile).add(position);
       AliasTransformation spy = new AliasSpy();
@@ -859,7 +1034,7 @@ public class ScopedAliasesTest extends CompilerTestCase {
   }
 
   private static class AliasSpy implements AliasTransformation {
-    public final Map<String, String> observedDefinitions = Maps.newHashMap();
+    public final Map<String, String> observedDefinitions = new HashMap<>();
 
     @Override
     public void addAlias(String alias, String definition) {
@@ -894,7 +1069,7 @@ public class ScopedAliasesTest extends CompilerTestCase {
         Collection<Node> typeNodes = info.getTypeNodes();
         if (!typeNodes.isEmpty()) {
           if (actualTypes != null) {
-            List<Node> expectedTypes = Lists.newArrayList();
+            List<Node> expectedTypes = new ArrayList<>();
             expectedTypes.addAll(info.getTypeNodes());
             assertEquals("Wrong number of JsDoc types",
                 expectedTypes.size(), actualTypes.size());
@@ -903,7 +1078,7 @@ public class ScopedAliasesTest extends CompilerTestCase {
                   expectedTypes.get(i).checkTreeEquals(actualTypes.get(i)));
             }
           } else {
-            actualTypes = Lists.newArrayList();
+            actualTypes = new ArrayList<>();
             actualTypes.addAll(info.getTypeNodes());
           }
         }

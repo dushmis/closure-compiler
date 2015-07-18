@@ -24,7 +24,6 @@ import com.google.javascript.jscomp.DataFlowAnalysis.FlowState;
 import com.google.javascript.jscomp.LiveVariablesAnalysis.LiveVariableLattice;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -260,7 +259,7 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements
         }
       } else {
         // Not reachable.
-        Preconditions.checkState(false, "Unknown statement");
+        throw new IllegalStateException("Unknown statement");
       }
 
       compiler.reportCodeChange();

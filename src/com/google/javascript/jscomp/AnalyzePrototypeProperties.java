@@ -18,10 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
@@ -29,8 +26,10 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +46,7 @@ import java.util.Stack;
  * Global functions are also represented by nodes in this graph, with
  * similar semantics.
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 class AnalyzePrototypeProperties implements CompilerPass {
 
@@ -94,11 +94,11 @@ class AnalyzePrototypeProperties implements CompilerPass {
 
   // All the real NameInfo for prototype properties, hashed by the name
   // of the property that they represent.
-  private final Map<String, NameInfo> propertyNameInfo = Maps.newLinkedHashMap();
+  private final Map<String, NameInfo> propertyNameInfo = new LinkedHashMap<>();
 
   // All the NameInfo for global functions, hashed by the name of the
   // global variable that it's assigned to.
-  private final Map<String, NameInfo> varNameInfo = Maps.newLinkedHashMap();
+  private final Map<String, NameInfo> varNameInfo = new LinkedHashMap<>();
 
   /**
    * Creates a new pass for analyzing prototype properties.
@@ -160,7 +160,7 @@ class AnalyzePrototypeProperties implements CompilerPass {
    * Returns information on all prototype properties.
    */
   public Collection<NameInfo> getAllNameInfo() {
-    List<NameInfo> result = Lists.newArrayList(propertyNameInfo.values());
+    List<NameInfo> result = new ArrayList<>(propertyNameInfo.values());
     result.addAll(varNameInfo.values());
     return result;
   }
@@ -391,7 +391,7 @@ class AnalyzePrototypeProperties implements CompilerPass {
       if (lValue == null ||
           lValue.getParent() == null ||
           lValue.getParent().getParent() == null ||
-          !(NodeUtil.isObjectLitKey(lValue) ||
+          !((NodeUtil.isObjectLitKey(lValue) && !lValue.isQuotedString()) ||
             NodeUtil.isExprAssign(lValue.getParent().getParent()))) {
         return null;
       }
@@ -480,13 +480,15 @@ class AnalyzePrototypeProperties implements CompilerPass {
           if (map.isObjectLit()) {
             for (Node key = map.getFirstChild();
                  key != null; key = key.getNext()) {
-              // May be STRING, GETTER_DEF, or SETTER_DEF,
-              String name = key.getString();
-              Property prop = new LiteralProperty(
-                  key, key.getFirstChild(), map, n,
-                  maybeGetVar(t, root),
-                  t.getModule());
-              getNameInfoForName(name, PROPERTY).getDeclarations().add(prop);
+              if (!key.isQuotedString()) {
+                // May be STRING, GETTER_DEF, or SETTER_DEF,
+                String name = key.getString();
+                Property prop = new LiteralProperty(
+                    key, key.getFirstChild(), map, n,
+                    maybeGetVar(t, root),
+                    t.getModule());
+                getNameInfoForName(name, PROPERTY).getDeclarations().add(prop);
+              }
             }
             return true;
           }
@@ -600,17 +602,6 @@ class AnalyzePrototypeProperties implements CompilerPass {
     @Override
     public JSModule getModule() {
       return module;
-    }
-
-    public Node getFunctionNode() {
-      Node parent = nameNode.getParent();
-
-      if (parent.isFunction()) {
-        return parent;
-      } else {
-        // we are the name of a var node, so the function is name's second child
-        return nameNode.getChildAtIndex(1);
-      }
     }
   }
 

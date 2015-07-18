@@ -16,12 +16,12 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
@@ -31,6 +31,7 @@ import javax.annotation.Nullable;
  * Creates synthetic blocks to optimizations from moving code
  * past markers in the source.
  *
+ * @author johnlenz@google.com (John Lenz)
  */
 class CreateSyntheticBlocks implements CompilerPass {
   static final DiagnosticType UNMATCHED_START_MARKER = DiagnosticType.warning(
@@ -56,7 +57,7 @@ class CreateSyntheticBlocks implements CompilerPass {
    */
   private final Deque<Node> markerStack = new ArrayDeque<>();
 
-  private final List<Marker> validMarkers = Lists.newArrayList();
+  private final List<Marker> validMarkers = new ArrayList<>();
 
   private static class Marker {
     final Node startMarker;

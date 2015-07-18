@@ -43,9 +43,9 @@ import static com.google.javascript.rhino.jstype.TernaryValue.UNKNOWN;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
-import com.google.common.collect.Lists;
 import com.google.javascript.rhino.ErrorReporter;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.SortedSet;
@@ -261,6 +261,19 @@ public class UnionType extends JSType {
     return false;
   }
 
+  /**
+   * Tests whether this type is voidable.
+   */
+  @Override
+  public boolean isVoidable() {
+    for (JSType t : alternates) {
+      if (t.isVoidable()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   @Override
   public boolean isUnknownType() {
     for (JSType t : alternates) {
@@ -436,7 +449,7 @@ public class UnionType extends JSType {
     boolean firstAlternate = true;
 
     result.append("(");
-    SortedSet<JSType> sorted = new TreeSet<JSType>(ALPHA);
+    SortedSet<JSType> sorted = new TreeSet<>(ALPHA);
     sorted.addAll(alternates);
     for (JSType t : sorted) {
       if (!firstAlternate) {
@@ -554,7 +567,7 @@ public class UnionType extends JSType {
   }
 
   @Override
-  JSType resolveInternal(ErrorReporter t, StaticScope<JSType> scope) {
+  JSType resolveInternal(ErrorReporter t, StaticTypedScope<JSType> scope) {
     setResolvedTypeInternal(this); // for circularly defined types.
 
     // Just resolve the alternates, but do not update as that breaks some error
@@ -569,7 +582,7 @@ public class UnionType extends JSType {
 
   @Override
   public String toDebugHashCodeString() {
-    List<String> hashCodes = Lists.newArrayList();
+    List<String> hashCodes = new ArrayList<>();
     for (JSType a : alternates) {
       hashCodes.add(a.toDebugHashCodeString());
     }

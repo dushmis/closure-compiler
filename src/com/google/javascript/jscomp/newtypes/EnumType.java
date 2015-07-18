@@ -33,7 +33,7 @@ import java.util.Collection;
  * - We represent the object literal that defined the enum as an ObjectType.
  * - We represent an element of the enum by using this class in JSType.
  */
-public class EnumType extends Namespace implements TypeWithProperties {
+public final class EnumType extends Namespace implements TypeWithProperties {
 
   private enum State {
     NOT_RESOLVED,
@@ -82,10 +82,11 @@ public class EnumType extends Namespace implements TypeWithProperties {
     return enumPropType;
   }
 
-  public JSType toJSType() {
+  @Override
+  public JSType toJSType(JSTypes commonTypes) {
     Preconditions.checkState(state == State.RESOLVED);
     if (enumObjType == null) {
-      enumObjType = computeObjType();
+      enumObjType = computeObjType(commonTypes);
     }
     return enumObjType;
   }
@@ -124,16 +125,15 @@ public class EnumType extends Namespace implements TypeWithProperties {
    *   var X = { ONE: 1, TWO: 2 };
    * the properties of the object literal are constant.
    */
-  private JSType computeObjType() {
+  private JSType computeObjType(JSTypes commonTypes) {
     Preconditions.checkState(enumPropType != null);
     PersistentMap<String, Property> propMap = otherProps;
     for (String s : props) {
       propMap = propMap.with(s,
-          Property.makeConstant(enumPropType, enumPropType));
+          Property.makeConstant(null, enumPropType, enumPropType));
     }
-    return withNamedTypes(
-        ObjectType.makeObjectType(
-            null, propMap, null, false, ObjectKind.UNRESTRICTED));
+    ObjectType obj = ObjectType.makeObjectType(null, propMap, null, false, ObjectKind.UNRESTRICTED);
+    return withNamedTypes(commonTypes, obj);
   }
 
   @Override
@@ -161,10 +161,13 @@ public class EnumType extends Namespace implements TypeWithProperties {
     return declaredType.hasConstantProp(qname);
   }
 
+  // Unlike hasProp, this method asks about the object literal in the enum
+  // definition, not about the declared type of the enum.
+  public boolean enumLiteralHasKey(String name) {
+    return props.contains(name);
+  }
+
   static boolean hasNonScalar(ImmutableSet<EnumType> enums) {
-    if (enums == null) {
-      return false;
-    }
     for (EnumType e : enums) {
       if (e.declaredType.hasNonScalar()) {
         return true;
@@ -175,10 +178,10 @@ public class EnumType extends Namespace implements TypeWithProperties {
 
   static ImmutableSet<EnumType> union(
       ImmutableSet<EnumType> s1, ImmutableSet<EnumType> s2) {
-    if (s1 == null) {
+    if (s1.isEmpty()) {
       return s2;
     }
-    if (s2 == null || s1.equals(s2)) {
+    if (s2.isEmpty() || s1.equals(s2)) {
       return s1;
     }
     return Sets.union(s1, s2).immutableCopy();

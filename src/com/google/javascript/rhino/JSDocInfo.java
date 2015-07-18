@@ -40,18 +40,17 @@
 package com.google.javascript.rhino;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,7 +99,9 @@ public class JSDocInfo implements Serializable {
       JAGGER_INJECT = 2,
       JAGGER_MODULE = 3,
       JAGGER_PROVIDE_PROMISE = 4,
-      JAGGER_PROVIDE = 5;
+      JAGGER_PROVIDE = 5,
+
+      POLYMER_BEHAVIOR = 6;
   }
 
   private static final class LazilyInitializedInfo implements Serializable {
@@ -121,8 +122,8 @@ public class JSDocInfo implements Serializable {
     String meaning = null;
     String deprecated = null;
     String license = null;
-    Set<String> suppressions = null;
-    Set<String> modifies = null;
+    ImmutableSet<String> suppressions = null;
+    ImmutableSet<String> modifies = null;
     String lendsName = null;
 
     // Bit flags for properties.
@@ -130,9 +131,53 @@ public class JSDocInfo implements Serializable {
 
     @Override
     public String toString() {
-      return com.google.common.base.Objects.toStringHelper(this)
-          .add("bitfield", propertyBitField)
+      return MoreObjects.toStringHelper(this)
+          .add("bitfield", (propertyBitField == 0)
+                           ? null : Integer.toHexString(propertyBitField))
+          .add("baseType", baseType)
+          .add("extendedInterfaces", extendedInterfaces)
+          .add("implementedInterfaces", implementedInterfaces)
+          .add("parameters", parameters)
+          .add("thrownTypes", thrownTypes)
+          .add("templateTypeNames", templateTypeNames)
+          .add("disposedParameters", disposedParameters)
+          .add("typeTransformations", typeTransformations)
+          .add("description", description)
+          .add("meaning", meaning)
+          .add("deprecated", deprecated)
+          .add("license", license)
+          .add("suppressions", suppressions)
+          .add("lendsName", lendsName)
+          .omitNullValues()
           .toString();
+    }
+
+    protected LazilyInitializedInfo clone() {
+      LazilyInitializedInfo other = new LazilyInitializedInfo();
+      other.baseType = baseType;
+      other.extendedInterfaces = extendedInterfaces == null ? null
+          : new ArrayList<>(extendedInterfaces);
+      other.implementedInterfaces = implementedInterfaces == null ? null
+          : new ArrayList<>(implementedInterfaces);
+      other.parameters = parameters == null ? null : new LinkedHashMap<>(parameters);
+      other.thrownTypes = thrownTypes == null ? null : new ArrayList<>(thrownTypes);
+      other.templateTypeNames = templateTypeNames == null ? null
+          : new ArrayList<>(templateTypeNames);
+      other.disposedParameters = disposedParameters == null ? null
+          : new HashSet<>(disposedParameters);
+      other.typeTransformations = typeTransformations == null ? null
+          : new LinkedHashMap<>(typeTransformations);
+
+      other.description = description;
+      other.meaning = meaning;
+      other.deprecated = deprecated;
+      other.license = license;
+      other.suppressions = suppressions == null ? null : ImmutableSet.copyOf(suppressions);
+      other.modifies = modifies == null ? null :  ImmutableSet.copyOf(modifies);
+      other.lendsName = lendsName;
+
+      other.propertyBitField = propertyBitField;
+      return other;
     }
 
     // TODO(nnaze): Consider putting bit-fiddling logic in a reusable
@@ -187,8 +232,7 @@ public class JSDocInfo implements Serializable {
   static class TrimmedStringPosition extends StringPosition {
     @Override public void setItem(String item) {
       Preconditions.checkArgument(
-          item.charAt(0) != ' ' &&
-          item.charAt(item.length() - 1) != ' ',
+          item.charAt(0) != ' ' && item.charAt(item.length() - 1) != ' ',
           "String has leading or trailing whitespace");
       super.setItem(item);
     }
@@ -300,9 +344,6 @@ public class JSDocInfo implements Serializable {
 
   private LazilyInitializedDocumentation documentation = null;
 
-  // The Node this JSDoc is associated with.
-  private Node associatedNode = null;
-
   private Visibility visibility = null;
 
   /**
@@ -362,18 +403,19 @@ public class JSDocInfo implements Serializable {
   private static final int MASK_DEFINE        = 0x00000004; // @define
   private static final int MASK_HIDDEN        = 0x00000008; // @hidden
   private static final int MASK_PRESERVETRY   = 0x00000010; // @preserveTry
-  private static final int MASK_NOCHECK       = 0x00000020; // @notypecheck
+  @SuppressWarnings("unused")
+  private static final int MASK_UNUSED_1      = 0x00000020; //
   private static final int MASK_OVERRIDE      = 0x00000040; // @override
   private static final int MASK_NOALIAS       = 0x00000080; // @noalias
   private static final int MASK_DEPRECATED    = 0x00000100; // @deprecated
   private static final int MASK_INTERFACE     = 0x00000200; // @interface
   private static final int MASK_EXPORT        = 0x00000400; // @export
-  private static final int MASK_NOSHADOW      = 0x00000800; // @noshadow
   private static final int MASK_FILEOVERVIEW  = 0x00001000; // @fileoverview
   private static final int MASK_IMPLICITCAST  = 0x00002000; // @implicitCast
   private static final int MASK_NOSIDEEFFECTS = 0x00004000; // @nosideeffects
   private static final int MASK_EXTERNS       = 0x00008000; // @externs
-  private static final int MASK_JAVADISPATCH  = 0x00010000; // @javadispatch
+  @SuppressWarnings("unused")
+  private static final int MASK_UNUSED_2      = 0x00010000; //
   private static final int MASK_NOCOMPILE     = 0x00020000; // @nocompile
   private static final int MASK_CONSISTIDGEN  = 0x00040000; // @consistentIdGenerator
   private static final int MASK_IDGEN         = 0x00080000; // @idGenerator
@@ -383,6 +425,7 @@ public class JSDocInfo implements Serializable {
   private static final int MASK_DICT          = 0x00800000; // @dict
   private static final int MASK_STALBEIDGEN   = 0x01000000; // @stableIdGenerator
   private static final int MASK_MAPPEDIDGEN   = 0x02000000; // @idGenerator {mapped}
+  private static final int MASK_NOCOLLAPSE    = 0x04000000; // @nocollapse
 
   // 3 bit type field stored in the top 3 bits of the most significant
   // nibble.
@@ -396,17 +439,16 @@ public class JSDocInfo implements Serializable {
    * Creates a {@link JSDocInfo} object. This object should be created using
    * a {@link JSDocInfoBuilder}.
    */
-  public JSDocInfo(boolean includeDocumentation) {
+  JSDocInfo(boolean includeDocumentation) {
     this.includeDocumentation = includeDocumentation;
   }
 
   // Visible for testing.
-  public JSDocInfo() {}
+  JSDocInfo() {}
 
-  @Override
   public JSDocInfo clone() {
     JSDocInfo other = new JSDocInfo();
-    other.info = this.info;
+    other.info = this.info == null ? null : this.info.clone();
     other.documentation = this.documentation;
     other.visibility = this.visibility;
     other.bitset = this.bitset;
@@ -435,31 +477,32 @@ public class JSDocInfo implements Serializable {
       }
     }
 
-    return Objects.equals(jsDoc1.getAuthors(), jsDoc2.getAuthors()) &&
-        Objects.equals(jsDoc1.getBaseType(), jsDoc2.getBaseType()) &&
-        Objects.equals(jsDoc1.getBlockDescription(), jsDoc2.getBlockDescription()) &&
-        Objects.equals(jsDoc1.getFileOverview(), jsDoc2.getFileOverview()) &&
-        Objects.equals(jsDoc1.getImplementedInterfaces(), jsDoc2.getImplementedInterfaces()) &&
-        Objects.equals(jsDoc1.getEnumParameterType(), jsDoc2.getEnumParameterType()) &&
-        Objects.equals(jsDoc1.getExtendedInterfaces(), jsDoc2.getExtendedInterfaces()) &&
-        Objects.equals(jsDoc1.getLendsName(), jsDoc2.getLendsName()) &&
-        Objects.equals(jsDoc1.getLicense(), jsDoc2.getLicense()) &&
-        Objects.equals(jsDoc1.getMarkers(), jsDoc2.getMarkers()) &&
-        Objects.equals(jsDoc1.getMeaning(), jsDoc2.getMeaning()) &&
-        Objects.equals(jsDoc1.getModifies(), jsDoc2.getModifies()) &&
-        Objects.equals(jsDoc1.getOriginalCommentString(), jsDoc2.getOriginalCommentString()) &&
-        Objects.equals(jsDoc1.getReferences(), jsDoc2.getReferences()) &&
-        Objects.equals(jsDoc1.getReturnDescription(), jsDoc2.getReturnDescription()) &&
-        Objects.equals(jsDoc1.getReturnType(), jsDoc2.getReturnType()) &&
-        Objects.equals(jsDoc1.getSuppressions(), jsDoc2.getSuppressions()) &&
-        Objects.equals(jsDoc1.getTemplateTypeNames(), jsDoc2.getTemplateTypeNames()) &&
-        Objects.equals(jsDoc1.getThisType(), jsDoc2.getThisType()) &&
-        Objects.equals(jsDoc1.getThrownTypes(), jsDoc2.getThrownTypes()) &&
-        Objects.equals(jsDoc1.getTypedefType(), jsDoc2.getTypedefType()) &&
-        Objects.equals(jsDoc1.getType(), jsDoc2.getType()) &&
-        Objects.equals(jsDoc1.getVersion(), jsDoc2.getVersion()) &&
-        Objects.equals(jsDoc1.getVisibility(), jsDoc2.getVisibility()) &&
-        jsDoc1.bitset == jsDoc2.bitset;
+    return Objects.equals(jsDoc1.getAuthors(), jsDoc2.getAuthors())
+        && Objects.equals(jsDoc1.getBaseType(), jsDoc2.getBaseType())
+        && Objects.equals(jsDoc1.getBlockDescription(), jsDoc2.getBlockDescription())
+        && Objects.equals(jsDoc1.getFileOverview(), jsDoc2.getFileOverview())
+        && Objects.equals(jsDoc1.getImplementedInterfaces(), jsDoc2.getImplementedInterfaces())
+        && Objects.equals(jsDoc1.getEnumParameterType(), jsDoc2.getEnumParameterType())
+        && Objects.equals(jsDoc1.getExtendedInterfaces(), jsDoc2.getExtendedInterfaces())
+        && Objects.equals(jsDoc1.getLendsName(), jsDoc2.getLendsName())
+        && Objects.equals(jsDoc1.getLicense(), jsDoc2.getLicense())
+        && Objects.equals(jsDoc1.getMarkers(), jsDoc2.getMarkers())
+        && Objects.equals(jsDoc1.getMeaning(), jsDoc2.getMeaning())
+        && Objects.equals(jsDoc1.getModifies(), jsDoc2.getModifies())
+        && Objects.equals(jsDoc1.getOriginalCommentString(), jsDoc2.getOriginalCommentString())
+        && Objects.equals(jsDoc1.getPropertyBitField(), jsDoc2.getPropertyBitField())
+        && Objects.equals(jsDoc1.getReferences(), jsDoc2.getReferences())
+        && Objects.equals(jsDoc1.getReturnDescription(), jsDoc2.getReturnDescription())
+        && Objects.equals(jsDoc1.getReturnType(), jsDoc2.getReturnType())
+        && Objects.equals(jsDoc1.getSuppressions(), jsDoc2.getSuppressions())
+        && Objects.equals(jsDoc1.getTemplateTypeNames(), jsDoc2.getTemplateTypeNames())
+        && Objects.equals(jsDoc1.getThisType(), jsDoc2.getThisType())
+        && Objects.equals(jsDoc1.getThrownTypes(), jsDoc2.getThrownTypes())
+        && Objects.equals(jsDoc1.getTypedefType(), jsDoc2.getTypedefType())
+        && Objects.equals(jsDoc1.getType(), jsDoc2.getType())
+        && Objects.equals(jsDoc1.getVersion(), jsDoc2.getVersion())
+        && Objects.equals(jsDoc1.getVisibility(), jsDoc2.getVisibility())
+        && jsDoc1.bitset == jsDoc2.bitset;
   }
 
   boolean isDocumentationIncluded() {
@@ -506,10 +549,6 @@ public class JSDocInfo implements Serializable {
     setFlag(value, MASK_HIDDEN);
   }
 
-  void setNoCheck(boolean value) {
-    setFlag(value, MASK_NOCHECK);
-  }
-
   void setShouldPreserveTry(boolean value) {
     setFlag(value, MASK_PRESERVETRY);
   }
@@ -522,8 +561,7 @@ public class JSDocInfo implements Serializable {
     setFlag(value, MASK_NOALIAS);
   }
 
-  // Visible for testing.
-  public void setDeprecated(boolean value) {
+  void setDeprecated(boolean value) {
     setFlag(value, MASK_DEPRECATED);
   }
 
@@ -537,10 +575,6 @@ public class JSDocInfo implements Serializable {
 
   void setExpose(boolean value) {
     setFlag(value, MASK_EXPOSE);
-  }
-
-  void setNoShadow(boolean value) {
-    setFlag(value, MASK_NOSHADOW);
   }
 
   void setIdGenerator(boolean value) {
@@ -559,12 +593,12 @@ public class JSDocInfo implements Serializable {
     setFlag(value, MASK_EXTERNS);
   }
 
-  void setJavaDispatch(boolean value) {
-    setFlag(value, MASK_JAVADISPATCH);
-  }
-
   void setNoCompile(boolean value) {
     setFlag(value, MASK_NOCOMPILE);
+  }
+
+  void setNoCollapse(boolean value) {
+    setFlag(value, MASK_NOCOLLAPSE);
   }
 
   private void setFlag(boolean value, int mask) {
@@ -655,14 +689,6 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
-   * Returns whether the {@code @nocheck} annotation is present on this
-   * {@link JSDocInfo}.
-   */
-  public boolean isNoTypeCheck() {
-    return getFlag(MASK_NOCHECK);
-  }
-
-  /**
    * Returns whether the {@code @preserveTry} annotation is present on this
    * {@link JSDocInfo}.
    */
@@ -719,14 +745,6 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
-   * Returns whether the {@code @noshadow} annotation is present on this
-   * {@link JSDocInfo}.
-   */
-  public boolean isNoShadow() {
-    return getFlag(MASK_NOSHADOW);
-  }
-
-  /**
    * @return whether the {@code @idGenerator} is present on
    * this {@link JSDocInfo}
    */
@@ -759,19 +777,19 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
-   * Returns whether the {@code @javadispatch} annotation is present on this
+   * Returns whether the {@code @nocompile} annotation is present on this
    * {@link JSDocInfo}.
    */
-  public boolean isJavaDispatch() {
-    return getFlag(MASK_JAVADISPATCH);
+  public boolean isNoCompile() {
+    return getFlag(MASK_NOCOMPILE);
   }
 
   /**
    * Returns whether the {@code @nocompile} annotation is present on this
    * {@link JSDocInfo}.
    */
-  public boolean isNoCompile() {
-    return getFlag(MASK_NOCOMPILE);
+  public boolean isNoCollapse() {
+    return getFlag(MASK_NOCOLLAPSE);
   }
 
   /**
@@ -791,7 +809,6 @@ public class JSDocInfo implements Serializable {
             | MASK_NOALIAS
             | MASK_DEPRECATED
             | MASK_INTERFACE
-            | MASK_NOSHADOW
             | MASK_IMPLICITCAST
             | MASK_NOSIDEEFFECTS));
   }
@@ -800,21 +817,20 @@ public class JSDocInfo implements Serializable {
    * @return Whether there is a declaration of a callable type.
    */
   public boolean containsFunctionDeclaration() {
-    return (hasType() && getType().getRoot().isFunction()
+    boolean hasFunctionType = hasType() && getType().getRoot().isFunction();
+    return hasFunctionType
         || hasReturnType()
         || hasThisType()
         || getParameterCount() > 0
-        || getFlag(MASK_CONSTRUCTOR
-            | MASK_OVERRIDE
-            | MASK_NOSIDEEFFECTS));
+        || getFlag(MASK_CONSTRUCTOR)
+        || (getFlag(MASK_NOSIDEEFFECTS) && (!hasType() || hasFunctionType));
   }
 
   private boolean getFlag(int mask) {
     return (bitset & mask) != 0x00;
   }
 
-  // Visible for testing.
-  public void setVisibility(Visibility visibility) {
+  void setVisibility(Visibility visibility) {
     this.visibility = visibility;
   }
 
@@ -850,7 +866,7 @@ public class JSDocInfo implements Serializable {
     }
 
     if (documentation.markers == null) {
-      documentation.markers = Lists.newArrayList();
+      documentation.markers = new ArrayList<>();
     }
 
     Marker marker = new Marker();
@@ -877,13 +893,17 @@ public class JSDocInfo implements Serializable {
   /**
    * Add a suppressed warning.
    */
-  public void addSuppression(String suppression) {
+  void addSuppression(String suppression) {
     lazyInitInfo();
 
     if (info.suppressions == null) {
-      info.suppressions = Sets.newHashSet();
+      info.suppressions = ImmutableSet.of(suppression);
+    } else {
+      info.suppressions = new ImmutableSet.Builder<String>()
+          .addAll(info.suppressions)
+          .add(suppression)
+          .build();
     }
-    info.suppressions.add(suppression);
   }
 
   /**
@@ -897,20 +917,8 @@ public class JSDocInfo implements Serializable {
       return false;
     }
 
-    info.suppressions = suppressions;
+    info.suppressions = ImmutableSet.copyOf(suppressions);
     return true;
-  }
-
-  /**
-   * Add modifies values.
-   */
-  void addModifies(String modifies) {
-    lazyInitInfo();
-
-    if (info.modifies == null) {
-      info.modifies = Sets.newHashSet();
-    }
-    info.modifies.add(modifies);
   }
 
   /**
@@ -924,7 +932,7 @@ public class JSDocInfo implements Serializable {
       return false;
     }
 
-    info.modifies = modifies;
+    info.modifies = ImmutableSet.copyOf(modifies);
     return true;
   }
 
@@ -953,7 +961,7 @@ public class JSDocInfo implements Serializable {
     }
 
     if (documentation.sees == null) {
-      documentation.sees = Lists.newArrayList();
+      documentation.sees = new ArrayList<>();
     }
 
     documentation.sees.add(reference);
@@ -969,7 +977,7 @@ public class JSDocInfo implements Serializable {
     }
 
     if (documentation.authors == null) {
-      documentation.authors = Lists.newArrayList();
+      documentation.authors = new ArrayList<>();
     }
 
     documentation.authors.add(author);
@@ -985,8 +993,7 @@ public class JSDocInfo implements Serializable {
     }
 
     if (documentation.throwsDescriptions == null) {
-      documentation.throwsDescriptions =
-          new LinkedHashMap<JSTypeExpression, String>();
+      documentation.throwsDescriptions = new LinkedHashMap<>();
     }
 
     if (!documentation.throwsDescriptions.containsKey(type)) {
@@ -1011,7 +1018,7 @@ public class JSDocInfo implements Serializable {
     }
 
     if (documentation.parameters == null) {
-      documentation.parameters = new LinkedHashMap<String, String>();
+      documentation.parameters = new LinkedHashMap<>();
     }
 
     if (!documentation.parameters.containsKey(parameter)) {
@@ -1089,7 +1096,7 @@ public class JSDocInfo implements Serializable {
   boolean declareParam(JSTypeExpression jsType, String parameter) {
     lazyInitInfo();
     if (info.parameters == null) {
-      info.parameters = new LinkedHashMap<String, JSTypeExpression>();
+      info.parameters = new LinkedHashMap<>();
     }
     if (!info.parameters.containsKey(parameter)) {
       info.parameters.put(parameter, jsType);
@@ -1108,11 +1115,11 @@ public class JSDocInfo implements Serializable {
   boolean declareTemplateTypeName(String newTemplateTypeName) {
     lazyInitInfo();
 
-    if (isTypeTransformationName(newTemplateTypeName)) {
+    if (isTypeTransformationName(newTemplateTypeName) || hasTypedefType()) {
       return false;
     }
     if (info.templateTypeNames == null){
-      info.templateTypeNames = new ArrayList<String>();
+      info.templateTypeNames = new ArrayList<>();
     } else if (info.templateTypeNames.contains(newTemplateTypeName)) {
       return false;
     }
@@ -1152,7 +1159,7 @@ public class JSDocInfo implements Serializable {
     if (info.typeTransformations == null){
       // A LinkedHashMap is used to keep the insertion order. The type
       // transformation expressions will be evaluated in this order.
-      info.typeTransformations = new LinkedHashMap<String, Node>();
+      info.typeTransformations = new LinkedHashMap<>();
     } else if (info.typeTransformations.containsKey(newName)) {
       return false;
     }
@@ -1169,7 +1176,7 @@ public class JSDocInfo implements Serializable {
     lazyInitInfo();
 
     if (info.thrownTypes == null) {
-      info.thrownTypes = Lists.newArrayList();
+      info.thrownTypes = new ArrayList<>();
     }
 
     info.thrownTypes.add(jsType);
@@ -1259,15 +1266,19 @@ public class JSDocInfo implements Serializable {
     setType(type, TYPEFIELD_ENUM);
   }
 
-  void setTypedefType(JSTypeExpression type) {
-    setType(type, TYPEFIELD_TYPEDEF);
+  boolean declareTypedefType(JSTypeExpression type) {
+    if (getTemplateTypeNames().isEmpty()) {
+      setType(type, TYPEFIELD_TYPEDEF);
+      return true;
+    }
+    return false;
   }
 
   private void setType(JSTypeExpression type, int mask) {
     if ((bitset & MASK_TYPEFIELD) != 0) {
       throw new IllegalStateException(
-          "API tried to add two incompatible type tags. " +
-          "This should have been blocked and emitted a warning.");
+          "API tried to add two incompatible type tags. "
+          + "This should have been blocked and emitted a warning.");
     }
     this.bitset = (bitset & MASK_FLAGS) | mask;
     this.type = type;
@@ -1317,6 +1328,10 @@ public class JSDocInfo implements Serializable {
 
   private boolean hasType(int mask) {
     return (bitset & MASK_TYPEFIELD) == mask;
+  }
+
+  public boolean hasTypeInformation() {
+    return (bitset & MASK_TYPEFIELD) != 0;
   }
 
   /**
@@ -1518,6 +1533,18 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
+   * Returns whether JSDoc is annotated with {@code @polymerBehavior} annotation.
+   */
+  public boolean isPolymerBehavior() {
+    return (info != null) && info.isBitSet(Property.POLYMER_BEHAVIOR);
+  }
+
+  void setPolymerBehavior(boolean polymerBehavior) {
+    lazyInitInfo();
+    info.setBit(Property.POLYMER_BEHAVIOR, polymerBehavior);
+  }
+
+  /**
    * Returns whether JSDoc is annotated with {@code @disposes} annotation.
    */
   public boolean isDisposes() {
@@ -1528,7 +1555,7 @@ public class JSDocInfo implements Serializable {
     lazyInitInfo();
     // Lazily initialize disposedParameters
     if (info.disposedParameters == null) {
-      info.disposedParameters = Sets.newHashSet();
+      info.disposedParameters = new HashSet<>();
     }
 
     if (info.disposedParameters.contains(parameterName)) {
@@ -1553,14 +1580,10 @@ public class JSDocInfo implements Serializable {
     return (info == null) ? null : info.license;
   }
 
-  /** License directives can appear in multiple comments, and always
-   * apply to the entire file.  Break protection and allow outsiders to
-   * update the license string so that we can attach the license text even
-   * when the JSDocInfo has been created and tagged with other information.
+  /**
    * @param license String containing new license text.
    */
-
-  public void setLicense(String license) {
+  void setLicense(String license) {
     lazyInitInfo();
     info.license = license;
   }
@@ -1572,10 +1595,15 @@ public class JSDocInfo implements Serializable {
 
   @VisibleForTesting
   public String toStringVerbose() {
-    return com.google.common.base.Objects.toStringHelper(this)
+    return MoreObjects.toStringHelper(this)
+        .add("bitset", (bitset == 0) ? null : Integer.toHexString(bitset))
+        .add("documentation", documentation)
         .add("info", info)
-        .add("bitset", Integer.toHexString(bitset))
         .add("originalComment", getOriginalCommentString())
+        .add("thisType", thisType)
+        .add("type", type)
+        .add("visibility", visibility)
+        .omitNullValues()
         .toString();
   }
 
@@ -1594,7 +1622,7 @@ public class JSDocInfo implements Serializable {
   boolean addImplementedInterface(JSTypeExpression interfaceName) {
     lazyInitInfo();
     if (info.implementedInterfaces == null) {
-      info.implementedInterfaces = Lists.newArrayListWithCapacity(2);
+      info.implementedInterfaces = new ArrayList<>(2);
     }
     if (info.implementedInterfaces.contains(interfaceName)) {
       return false;
@@ -1635,7 +1663,7 @@ public class JSDocInfo implements Serializable {
   boolean addExtendedInterface(JSTypeExpression type) {
     lazyInitInfo();
     if (info.extendedInterfaces == null) {
-      info.extendedInterfaces = Lists.newArrayListWithCapacity(2);
+      info.extendedInterfaces = new ArrayList<>(2);
     }
     if (info.extendedInterfaces.contains(type)) {
       return false;
@@ -1688,6 +1716,17 @@ public class JSDocInfo implements Serializable {
   public Set<String> getModifies() {
     Set<String> modifies = info == null ? null : info.modifies;
     return modifies == null ? Collections.<String>emptySet() : modifies;
+  }
+
+  private Integer getPropertyBitField() {
+    return info == null ? null : info.propertyBitField;
+  }
+
+  void mergePropertyBitfieldFrom(JSDocInfo other) {
+    if (other.info != null) {
+      lazyInitInfo();
+      info.propertyBitField |= other.getPropertyBitField();
+    }
   }
 
   /**
@@ -1763,33 +1802,6 @@ public class JSDocInfo implements Serializable {
     return documentation == null ? null : documentation.fileOverview;
   }
 
-  public Node getAssociatedNode() {
-    return this.associatedNode;
-  }
-
-  /**
-   * Sets the node associated with this JSDoc.
-   * Notice that many nodes may have pointer to the same JSDocInfo
-   * object (because we propagate it across the type graph). But there
-   * is only one canonical "owner" node of the JSDocInfo, which corresponds
-   * to its original place in the syntax tree.
-   */
-  public void setAssociatedNode(Node node) {
-    this.associatedNode = node;
-  }
-
-  /** Gets the name of the source file that contains this JSDoc. */
-  public StaticSourceFile getStaticSourceFile() {
-    return this.associatedNode != null
-        ? this.associatedNode.getStaticSourceFile() : null;
-  }
-
-  /** Gets the name of the source file that contains this JSDoc. */
-  public String getSourceName() {
-    return this.associatedNode != null
-        ? this.associatedNode.getSourceFileName() : null;
-  }
-
   /** Gets the list of all markers for the documentation in this JSDoc. */
   public Collection<Marker> getMarkers() {
     return (documentation == null || documentation.markers == null)
@@ -1820,7 +1832,7 @@ public class JSDocInfo implements Serializable {
    * @return collection of all type nodes
    */
   public Collection<Node> getTypeNodes() {
-    List<Node> nodes = Lists.newArrayList();
+    List<Node> nodes = new ArrayList<>();
 
     if (type != null) {
       nodes.add(type.getRoot());

@@ -19,12 +19,12 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -33,8 +33,9 @@ import java.util.Map;
 
 /**
  * Helper classes for dealing with coding conventions.
+ * @author nicksantos@google.com (Nick Santos)
  */
-public class CodingConventions {
+public final class CodingConventions {
 
   private CodingConventions() {}
 
@@ -208,7 +209,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       nextConvention.defineDelegateProxyPrototypeProperties(
@@ -227,12 +228,14 @@ public class CodingConventions {
 
     @Override
     public Bind describeFunctionBind(Node n) {
-      return describeFunctionBind(n, false);
+      return describeFunctionBind(n, false, false);
     }
 
     @Override
-    public Bind describeFunctionBind(Node n, boolean useTypeInfo) {
-      return nextConvention.describeFunctionBind(n, useTypeInfo);
+    public Bind describeFunctionBind(
+        Node n, boolean callerChecksTypes, boolean iCheckTypes) {
+      return nextConvention
+          .describeFunctionBind(n, callerChecksTypes, iCheckTypes);
     }
 
     @Override
@@ -302,7 +305,7 @@ public class CodingConventions {
     public String getPackageName(StaticSourceFile source) {
       // The package name of a source file is its file path.
       String name = source.getName();
-      int lastSlash = name.lastIndexOf("/");
+      int lastSlash = name.lastIndexOf('/');
       return lastSlash == -1 ? "" : name.substring(0, lastSlash);
     }
 
@@ -323,7 +326,18 @@ public class CodingConventions {
 
     @Override
     public SubclassRelationship getClassesDefinedByCall(Node callNode) {
-      return null;
+      Node callName = callNode.getFirstChild();
+      if ((callName.matchesQualifiedName("$jscomp.inherits")
+          || callName.matchesQualifiedName("$jscomp$inherits"))
+          && callNode.getChildCount() == 3) {
+        Node subclass = callName.getNext();
+        Node superclass = subclass.getNext();
+
+        return new SubclassRelationship(
+            SubclassType.INHERITS, subclass, superclass);
+      } else {
+        return null;
+      }
     }
 
     @Override
@@ -418,7 +432,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       // do nothing.
@@ -451,11 +465,12 @@ public class CodingConventions {
 
     @Override
     public Bind describeFunctionBind(Node n) {
-      return describeFunctionBind(n, false);
+      return describeFunctionBind(n, false, false);
     }
 
     @Override
-    public Bind describeFunctionBind(Node n, boolean useTypeInfo) {
+    public Bind describeFunctionBind(
+        Node n, boolean callerChecksTypes, boolean iCheckTypes) {
       if (!n.isCall()) {
         return null;
       }
@@ -479,12 +494,12 @@ public class CodingConventions {
         Node maybeFn = callTarget.getFirstChild();
         JSType maybeFnType = maybeFn.getJSType();
         FunctionType fnType = null;
-        if (useTypeInfo && maybeFnType != null) {
+        if (iCheckTypes && maybeFnType != null) {
           fnType = maybeFnType.restrictByNotNullOrUndefined()
               .toMaybeFunctionType();
         }
 
-        if (fnType != null || maybeFn.isFunction()) {
+        if (fnType != null || callerChecksTypes || maybeFn.isFunction()) {
           // (function(){}).bind(self, args...);
           Node thisValue = callTarget.getNext();
           Node parameters = safeNext(thisValue);

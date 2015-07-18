@@ -256,6 +256,11 @@ var webkitMediaStream;
 function MediaTrackConstraintSetInterface_() {}
 
 /**
+ * @type {?string}
+ */
+MediaTrackConstraintSetInterface_.prototype.chromeMediaSource;
+
+/**
  * @type {?number}
  */
 MediaTrackConstraintSetInterface_.prototype.minWidth;
@@ -770,7 +775,7 @@ RTCDataChannel.prototype.onclose;
 RTCDataChannel.prototype.close = function() {};
 
 /**
- * @type {?function(!MessageEvent)}
+ * @type {?function(!MessageEvent.<*>)}
  */
 RTCDataChannel.prototype.onmessage;
 

@@ -35,7 +35,7 @@ import com.google.javascript.rhino.Token;
  * @see ObjectPropertyStringPostprocess
  *
  */
-public class ObjectPropertyStringPreprocess implements CompilerPass {
+public final class ObjectPropertyStringPreprocess implements CompilerPass {
   static final String OBJECT_PROPERTY_STRING =
       "goog.testing.ObjectPropertyString";
 
@@ -126,13 +126,11 @@ public class ObjectPropertyStringPreprocess implements CompilerPass {
         return;
       }
 
-      Node newFirstArgument = NodeUtil.newQualifiedNameNode(
-          compiler.getCodingConvention(),
+      Node newFirstArgument = NodeUtil.newQName(compiler,
           compiler.getCodingConvention().getGlobalObject())
               .srcrefTree(firstArgument);
 
-      Node newSecondArgument = NodeUtil.newQualifiedNameNode(
-          compiler.getCodingConvention(),
+      Node newSecondArgument = NodeUtil.newQName(compiler,
           firstArgument.getQualifiedName() + "." +
           firstArgument.getNext().getString())
               .srcrefTree(secondArgument);

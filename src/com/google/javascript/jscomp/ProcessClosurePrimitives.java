@@ -17,19 +17,19 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -42,6 +42,7 @@ import javax.annotation.Nullable;
  * goog.require has a corresponding goog.provide and some closure specific
  * simplifications.
  *
+ * @author chrisn@google.com (Chris Nokleberg)
  */
 class ProcessClosurePrimitives extends AbstractPostOrderCallback
     implements HotSwapCompilerPass {
@@ -74,6 +75,16 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       "JSC_DUPLICATE_NAMESPACE_ERROR",
       "namespace \"{0}\" cannot be provided twice");
 
+  static final DiagnosticType WEAK_NAMESPACE_TYPE = DiagnosticType.warning(
+      "JSC_WEAK_NAMESPACE_TYPE",
+      "Provided symbol declared with type Object. This is rarely useful. "
+      + "For more information see "
+      + "https://github.com/google/closure-compiler/wiki/A-word-about-the-type-Object");
+
+  static final DiagnosticType CLASS_NAMESPACE_ERROR = DiagnosticType.error(
+      "JSC_CLASS_NAMESPACE_ERROR",
+    "\"{0}\" cannot be both provided and declared as a class. Try var {0} = class '{'...'}'");
+
   static final DiagnosticType FUNCTION_NAMESPACE_ERROR = DiagnosticType.error(
       "JSC_FUNCTION_NAMESPACE_ERROR",
       "\"{0}\" cannot be both provided and declared as a function");
@@ -88,7 +99,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
   static final DiagnosticType INVALID_PROVIDE_ERROR = DiagnosticType.error(
       "JSC_INVALID_PROVIDE_ERROR",
-      "\"{0}\" is not a valid JS identifier name");
+      "\"{0}\" is not a valid {1} qualified name");
 
   static final DiagnosticType INVALID_DEFINE_NAME_ERROR = DiagnosticType.error(
       "JSC_INVALID_DEFINE_NAME_ERROR",
@@ -102,6 +113,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       "JSC_XMODULE_REQUIRE_ERROR",
       "namespace \"{0}\" provided in module {1} " +
       "but required in module {2}");
+
+  static final DiagnosticType INVALID_CLOSURE_CALL_ERROR = DiagnosticType.error(
+      "JSC_INVALID_CLOSURE_CALL_ERROR",
+      "Closure dependency methods(goog.provide, goog.require, etc) must be called at file scope.");
 
   static final DiagnosticType NON_STRING_PASSED_TO_SET_CSS_NAME_MAPPING_ERROR =
       DiagnosticType.error(
@@ -140,16 +155,16 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
   // The goog.provides must be processed in a deterministic order.
   private final Map<String, ProvidedName> providedNames =
-      Maps.newLinkedHashMap();
+       new LinkedHashMap<>();
 
-  private final Set<String> knownClosureSubclasses = Sets.newHashSet();
+  private final Set<String> knownClosureSubclasses = new HashSet<>();
 
   private final List<UnrecognizedRequire> unrecognizedRequires =
-      Lists.newArrayList();
-  private final Set<String> exportedVariables = Sets.newHashSet();
+       new ArrayList<>();
+  private final Set<String> exportedVariables = new HashSet<>();
   private final CheckLevel requiresLevel;
   private final PreprocessorSymbolTable preprocessorSymbolTable;
-  private final List<Node> defineCalls = Lists.newArrayList();
+  private final List<Node> defineCalls = new ArrayList<>();
   private final boolean preserveGoogRequires;
 
   ProcessClosurePrimitives(AbstractCompiler compiler,
@@ -209,9 +224,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     String name = n.getChildAtIndex(1).getString();
     Node value = n.getChildAtIndex(2).detachFromParent();
 
-    Node replacement = NodeUtil.newQualifiedNameNodeDeclaration(
-        compiler.getCodingConvention(), name, value, n.getJSDocInfo());
-    replacement.useSourceInfoIfMissingFromForTree(n);
+    Node replacement = NodeUtil.newQNameDeclaration(
+        compiler, name, value, n.getJSDocInfo());
+    replacement.useSourceInfoIfMissingFromForTree(parent);
     parent.getParent().replaceChild(parent, replacement);
     compiler.reportCodeChange();
   }
@@ -227,30 +242,33 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
       case Token.CALL:
-        boolean isExpr = parent.isExprResult();
         Node left = n.getFirstChild();
         if (left.isGetProp()) {
           Node name = left.getFirstChild();
-          if (name.isName() &&
-              GOOG.equals(name.getString())) {
+          if (name.isName() && GOOG.equals(name.getString())) {
             // For the sake of simplicity, we report code changes
             // when we see a provides/requires, and don't worry about
             // reporting the change when we actually do the replacement.
             String methodName = name.getNext().getString();
             if ("base".equals(methodName)) {
               processBaseClassCall(t, n);
-            } else if (!isExpr) {
-              // All other methods must be called in an EXPR.
-              break;
             } else if ("define".equals(methodName)) {
-              processDefineCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processDefineCall(t, n, parent);
+              }
             } else if ("require".equals(methodName)) {
-              processRequireCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processRequireCall(t, n, parent);
+              }
             } else if ("provide".equals(methodName)) {
-              processProvideCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processProvideCall(t, n, parent);
+              }
             } else if ("inherits".equals(methodName)) {
+              // Note: inherits is allowed in local scope
               processInheritsCall(t, n);
             } else if ("exportSymbol".equals(methodName)) {
+              // Note: exportSymbol is allowed in local scope
               Node arg = left.getNext();
               if (arg.isString()) {
                 int dot = arg.getString().indexOf('.');
@@ -261,9 +279,13 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
                 }
               }
             } else if ("forwardDeclare".equals(methodName)){
-              processForwardDeclare(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processForwardDeclare(t, n, parent);
+              }
             } else if ("addDependency".equals(methodName)) {
-              processAddDependency(n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processAddDependency(n, parent);
+              }
             } else if ("setCssNameMapping".equals(methodName)) {
               processSetCssNameMapping(t, n, parent);
             }
@@ -287,6 +309,16 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
       case Token.EXPR_RESULT:
         handleTypedefDefinition(t, n);
+        break;
+
+      case Token.CLASS:
+        if (t.inGlobalScope() && !NodeUtil.isClassExpression(n)) {
+          String name = n.getFirstChild().getString();
+          ProvidedName pn = providedNames.get(name);
+          if (pn != null) {
+            compiler.report(t.makeError(n, CLASS_NAMESPACE_ERROR, name));
+          }
+        }
         break;
 
       case Token.FUNCTION:
@@ -313,20 +345,27 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
   }
 
-  /**
-   * @param n
-   */
+  private boolean validPrimitiveCall(NodeTraversal t, Node n) {
+    if (!n.getParent().isExprResult() || !t.inGlobalScope()) {
+      compiler.report(t.makeError(n, INVALID_CLOSURE_CALL_ERROR));
+      return false;
+    }
+    return true;
+  }
+
   private void handleClosureDefinesValues(NodeTraversal t, Node n) {
     // var CLOSURE_DEFINES = {};
     if (n.getParent().isVar() && n.hasOneChild() && n.getFirstChild().isObjectLit()) {
       HashMap<String, Node> builder = new HashMap<>();
       builder.putAll(compiler.getDefaultDefineValues());
       for (Node c : n.getFirstChild().children()) {
-         if (c.isStringKey() && isValidDefineValue(c.getFirstChild())) {
-           builder.put(c.getString(), c.getFirstChild().cloneTree());
-         } else {
-           reportBadClosureCommonDefinesDefinition(t, c);
-         }
+        if (c.isStringKey()
+            && c.getFirstChild() != null  // Shorthand assignment
+            && isValidDefineValue(c.getFirstChild())) {
+          builder.put(c.getString(), c.getFirstChild().cloneTree());
+        } else {
+          reportBadClosureCommonDefinesDefinition(t, c);
+        }
       }
       compiler.setDefaultDefineValues(ImmutableMap.copyOf(builder));
     }
@@ -356,8 +395,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       String ns = arg.getString();
       ProvidedName provided = providedNames.get(ns);
       if (provided == null || !provided.isExplicitlyProvided()) {
-        unrecognizedRequires.add(
-            new UnrecognizedRequire(n, ns, t.getSourceName()));
+        unrecognizedRequires.add(new UnrecognizedRequire(n, ns));
       } else {
         JSModule providedModule = provided.explicitModule;
 
@@ -418,7 +456,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
   }
 
-    /**
+  /**
    * Handles a goog.define call.
    */
   private void processDefineCall(NodeTraversal t, Node n, Node parent) {
@@ -426,8 +464,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     Node args = left.getNext();
     if (verifyDefine(t, parent, left, args)) {
       Node nameNode = args;
-      String name = args.getString();
-      Node value = args.getNext();
 
       maybeAddToSymbolTable(left);
       maybeAddStringNodeToSymbolTable(nameNode);
@@ -515,6 +551,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     // If requested report uses of goog.base.
     t.report(n, USE_OF_GOOG_BASE);
 
+    if (baseUsedInClass(n)){
+      reportBadGoogBaseUse(t, n, "goog.base in ES6 class is not allowed. Use super instead.");
+      return;
+    }
+
     Node callee = n.getFirstChild();
     Node thisArg = callee.getNext();
     if (thisArg == null || !thisArg.isThis()) {
@@ -554,8 +595,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       // We're good to go.
       n.replaceChild(
           callee,
-          NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(),
+          NodeUtil.newQName(
+            compiler,
             String.format("%s.call", baseClassNode.getQualifiedName()),
             callee, "goog.base"));
       compiler.reportCodeChange();
@@ -581,8 +622,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
           enclosingFnNameNode.getFirstChild().getFirstChild();
       n.replaceChild(
           callee,
-          NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(),
+          NodeUtil.newQName(
+            compiler,
             String.format("%s.superClass_.%s.call",
                 className.getQualifiedName(), methodName),
             callee, "goog.base"));
@@ -618,6 +659,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     //
     // Most of the logic here is just to make sure the AST's
     // structure is what we expect it to be.
+
+    if (baseUsedInClass(n)){
+      reportBadGoogBaseUse(t, n, "goog.base in ES6 class is not allowed. Use super instead.");
+      return;
+    }
 
     Node callTarget = n.getFirstChild();
     Node baseContainerNode = callTarget.getFirstChild();
@@ -698,8 +744,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       // We're good to go.
       n.replaceChild(
           callee,
-          NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(),
+          NodeUtil.newQName(
+            compiler,
             String.format("%s.call", baseClassNode.getQualifiedName()),
             callee, enclosingQname + ".base"));
       n.removeChild(methodNameNode);
@@ -751,8 +797,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
           enclosingFnNameNode.getFirstChild().getFirstChild();
       n.replaceChild(
           callee,
-          NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(),
+          NodeUtil.newQName(
+            compiler,
             String.format("%s.superClass_.%s.call",
                 className.getQualifiedName(), methodName),
             callee, enclosingQname + ".base"));
@@ -800,6 +846,16 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     return null;
+  }
+
+  /** Verify if goog.base call is used in a class */
+  private boolean baseUsedInClass(Node n){
+    for (Node curr = n; curr != null; curr = curr.getParent()){
+      if (curr.isClassMembers()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Reports an incorrect use of super-method calling. */
@@ -864,7 +920,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     if (verifySetCssNameMapping(t, left, arg)) {
       // Translate OBJECTLIT into SubstitutionMap. All keys and
       // values must be strings, or an error will be thrown.
-      final Map<String, String> cssNames = Maps.newHashMap();
+      final Map<String, String> cssNames = new HashMap<>();
 
       for (Node key = arg.getFirstChild(); key != null;
           key = key.getNext()) {
@@ -896,7 +952,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
       if (style == CssRenamingMap.Style.BY_PART) {
         // Make sure that no keys contain -'s
-        List<String> errors = Lists.newArrayList();
+        List<String> errors = new ArrayList<>();
         for (String key : cssNames.keySet()) {
           if (key.contains("-")) {
             errors.add(key);
@@ -911,7 +967,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
         // n^2 check over the map which makes sure that if "a-b" in
         // the map, then map(a-b) = map(a)-map(b).
         // To speed things up, only consider cases where len(b) <= 10
-        List<String> errors = Lists.newArrayList();
+        List<String> errors = new ArrayList<>();
         for (Map.Entry<String, String> b : cssNames.entrySet()) {
           if (b.getKey().length() > 10) {
             continue;
@@ -964,12 +1020,12 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       return false;
     }
 
-    for (String part : Splitter.on('.').split(arg.getString())) {
-      if (!NodeUtil.isValidPropertyName(part)) {
-        compiler.report(t.makeError(arg, INVALID_PROVIDE_ERROR, part));
-        return false;
-      }
+    if (!NodeUtil.isValidQualifiedName(compiler.getLanguageMode(), arg.getString())) {
+      compiler.report(t.makeError(arg, INVALID_PROVIDE_ERROR,
+          arg.getString(), compiler.getLanguageMode().toString()));
+      return false;
     }
+
     return true;
   }
 
@@ -999,11 +1055,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     String name = args.getString();
-    for (String part : name.split("\\.")) {
-      if (!NodeUtil.isValidQualifiedName(part)) {
-        compiler.report(t.makeError(args, INVALID_DEFINE_NAME_ERROR, name));
-        return false;
-      }
+    if (!NodeUtil.isValidQualifiedName(compiler.getLanguageMode(), name)) {
+      compiler.report(t.makeError(args, INVALID_DEFINE_NAME_ERROR, name));
+      return false;
     }
 
     JSDocInfo info = expr.getFirstChild().getJSDocInfo();
@@ -1279,6 +1333,30 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
         explicitNode.detachFromParent();
         compiler.reportCodeChange();
 
+        JSDocInfo info;
+        if (candidateDefinition.isExprResult()) {
+          info = candidateDefinition.getFirstChild().getJSDocInfo();
+        } else {
+          info = candidateDefinition.getJSDocInfo();
+        }
+
+        // Validate that the namespace is not declared as a generic object type.
+        if (info != null) {
+          JSTypeExpression expr = info.getType();
+          if (expr != null) {
+            Node n = expr.getRoot();
+            if (n.getType() == Token.BANG) {
+              n = n.getFirstChild();
+            }
+            if (n.getType() == Token.STRING
+                && !n.hasChildren()  // templated object types are ok.
+                && n.getString().equals("Object")) {
+              compiler.report(
+                  JSError.make(candidateDefinition, WEAK_NAMESPACE_TYPE));
+            }
+          }
+        }
+
         // Does this need a VAR keyword?
         replacementNode = candidateDefinition;
         if (candidateDefinition.isExprResult() &&
@@ -1386,8 +1464,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     private Node makeAssignmentExprNode() {
       Node decl = IR.exprResult(
           IR.assign(
-              NodeUtil.newQualifiedNameNode(
-                  compiler.getCodingConvention(), namespace,
+              NodeUtil.newQName(
+                  compiler, namespace,
                   firstNode /* real source info will be filled in below */,
                   namespace),
               createNamespaceLiteral()));
@@ -1473,8 +1551,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     String name = n.getString();
-    Node syntheticRef = NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(), name,
+    Node syntheticRef = NodeUtil.newQName(
+        compiler, name,
         n /* real source offsets will be filled in below */,
         name);
 
@@ -1521,12 +1599,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   private static class UnrecognizedRequire {
     final Node requireNode;
     final String namespace;
-    final String inputName;
 
-    UnrecognizedRequire(Node requireNode, String namespace, String inputName) {
+    UnrecognizedRequire(Node requireNode, String namespace) {
       this.requireNode = requireNode;
       this.namespace = namespace;
-      this.inputName = inputName;
     }
   }
 }

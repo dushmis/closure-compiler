@@ -42,7 +42,7 @@ function HTMLSpanElement() {}
 Window.prototype.Components;
 
 /**
- * @type Window
+ * @type {Window}
  * @see https://developer.mozilla.org/en/DOM/window.content
  */
 Window.prototype.content;
@@ -73,21 +73,6 @@ Window.prototype.dialogArguments;
 Window.prototype.directories;
 
 /**
- * @type {!Document}
- * @see https://developer.mozilla.org/en/DOM/window.document
- */
-Window.prototype.document;
-
-/**
- * Evaluates a string of JavaScript code in the context of the specified object.
- *
- * @param {string} code
- * @return {*}
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval
- */
-Window.prototype.eval;
-
-/**
  * @type {HTMLObjectElement|HTMLIFrameElement|null}
  * @see https://developer.mozilla.org/en/DOM/window.frameElement
  */
@@ -105,6 +90,12 @@ Window.prototype.frames;
  * @see https://developer.mozilla.org/en/DOM/window.fullScreen
  */
 Window.prototype.fullScreen;
+
+/**
+ * @return {!Promise<!BatteryManager>}
+ * @see http://www.w3.org/TR/battery-status/
+ */
+Navigator.prototype.getBattery = function() {};
 
 /**
  * @see https://developer.mozilla.org/en/DOM/Storage#globalStorage
@@ -237,10 +228,11 @@ Window.prototype.alert = function(message) {};
  * Decodes a string of data which has been encoded using base-64 encoding.
  *
  * @param {string} encodedData
+ * @return {string}
  * @see https://developer.mozilla.org/en/DOM/window.atob
  * @nosideeffects
  */
-Window.prototype.atob = function(encodedData) {};
+function atob(encodedData) {}
 
 /** @see https://developer.mozilla.org/en/DOM/window.back */
 Window.prototype.back = function() {};
@@ -254,33 +246,13 @@ Window.prototype.blur = function() {};
  * @see https://developer.mozilla.org/en/DOM/window.btoa
  * @nosideeffects
  */
-Window.prototype.btoa = function(stringToEncode) {};
+function btoa(stringToEncode) {}
 
 /** @deprecated */
 Window.prototype.captureEvents;
 
-/**
- * @param {number|undefined?} intervalID
- * @see https://developer.mozilla.org/en/DOM/window.clearInterval
- */
-Window.prototype.clearInterval = function(intervalID) {};
-
-/**
- * @param {number|undefined?} timeoutID
- * @see https://developer.mozilla.org/en/DOM/window.clearTimeout
- */
-Window.prototype.clearTimeout = function(timeoutID) {};
-
 /** @see https://developer.mozilla.org/en/DOM/window.close */
 Window.prototype.close = function() {};
-
-/**
- * @param {string} regular
- * @return {string}
- * @see https://developer.mozilla.org/en/DOM/window.escape
- * @nosideeffects
- */
-Window.prototype.escape = function(regular) {};
 
 /** @see https://developer.mozilla.org/en/DOM/window.find */
 Window.prototype.find;
@@ -293,14 +265,6 @@ Window.prototype.forward = function() {};
 
 /** @see https://developer.mozilla.org/en/DOM/window.getAttention */
 Window.prototype.getAttention = function() {};
-
-/**
- * @param {Element} element
- * @param {?string=} pseudoElt
- * @return {CSSStyleDeclaration}
- * @nosideeffects
- */
-Window.prototype.getComputedStyle = function(element, pseudoElt) {};
 
 /**
  * @return {Selection}
@@ -318,22 +282,6 @@ Window.prototype.scrollByLines;
 Window.prototype.scrollByPages;
 
 /**
- * @param {Function|string} callback
- * @param {number} delay
- * @param {...*} var_args
- * @return {number}
- */
-Window.prototype.setInterval;
-
-/**
- * @param {Function|string} callback
- * @param {number} delay
- * @param {...*} var_args
- * @return {number}
- */
-Window.prototype.setTimeout = function(callback, delay, var_args) {};
-
-/**
  * @param {string} uri
  * @param {?=} opt_arguments
  * @param {string=} opt_options
@@ -347,14 +295,6 @@ Window.prototype.sizeToContent;
  * @see http://msdn.microsoft.com/en-us/library/ms536769(VS.85).aspx
  */
 Window.prototype.stop = function() {};
-
-/**
- * @param {string} escaped
- * @return {string}
- * @see https://developer.mozilla.org/en/DOM/window.unescape
- * @nosideeffects
- */
-Window.prototype.unescape = function(escaped) {};
 
 Window.prototype.updateCommands;
 
@@ -435,7 +375,7 @@ Document.prototype.fgColor;
 Document.prototype.forms;
 
 /** @type {number} */ Document.prototype.height;
-/** @type {Array} */ Document.prototype.images;
+/** @type {HTMLCollection} */ Document.prototype.images;
 
 /**
  * @type {string}
@@ -460,12 +400,6 @@ Document.prototype.links;
  * @implicitCast
  */
 Document.prototype.location;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/DOM/Using_the_Page_Visibility_API
- */
-Document.prototype.mozVisibilityState;
 
 Document.prototype.namespaceURI;
 Document.prototype.nodePrincipal;
@@ -508,12 +442,15 @@ Document.prototype.clear = function() {};
 Document.prototype.close;
 
 /**
- * @see https://developer.mozilla.org/en/DOM/document.createElementNS
- * @param {string} namespaceURI
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/document.createElementNS
+ * @see http://w3c.github.io/webcomponents/spec/custom/#extensions-to-document-interface-to-instantiate
+ * @param {?string} namespaceURI
  * @param {string} qualifiedName
+ * @param {string=} opt_typeExtension
  * @return {!Element}
  */
-Document.prototype.createElementNS = function(namespaceURI, qualifiedName) {};
+Document.prototype.createElementNS =
+    function(namespaceURI, qualifiedName, opt_typeExtension) {};
 
 /**
  * @param {string} type
@@ -1178,3 +1115,12 @@ HTMLImageElement.prototype.naturalWidth;
  * @see http://www.google.com/codesearch/p?hl=en#eksvcKKj5Ng/mozilla/dom/public/idl/html/nsIDOMNSHTMLImageElement.idl&q=naturalHeight
  */
 HTMLImageElement.prototype.naturalHeight;
+
+
+/**
+ * @param {Element} element
+ * @param {?string=} pseudoElt
+ * @return {CSSStyleDeclaration}
+ * @nosideeffects
+ */
+function getComputedStyle(element, pseudoElt) {}

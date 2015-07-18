@@ -22,19 +22,17 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
+import com.google.javascript.rhino.StaticSymbolTable;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.JSType;
-import com.google.javascript.rhino.jstype.StaticReference;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSlot;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
-import com.google.javascript.rhino.jstype.StaticSymbolTable;
+import com.google.javascript.rhino.TypeI;
+import com.google.javascript.rhino.jstype.StaticTypedRef;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
+import com.google.javascript.rhino.jstype.StaticTypedSlot;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -43,14 +41,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Builds a global namespace of all the objects and their properties in
  * the global scope. Also builds an index of all the references to those names.
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 class GlobalNamespace
-    implements StaticScope<JSType>,
+    implements StaticTypedScope<TypeI>,
     StaticSymbolTable<GlobalNamespace.Name, GlobalNamespace.Ref> {
 
   private AbstractCompiler compiler;
@@ -110,7 +110,7 @@ class GlobalNamespace
   }
 
   @Override
-  public StaticScope<JSType> getParentScope() {
+  public StaticTypedScope<TypeI> getParentScope() {
     return null;
   }
 
@@ -126,8 +126,8 @@ class GlobalNamespace
   }
 
   @Override
-  public JSType getTypeOfThis() {
-    return compiler.getTypeRegistry().getNativeObjectType(GLOBAL_THIS);
+  public TypeI getTypeOfThis() {
+    return compiler.getTypeIRegistry().getNativeObjectType(GLOBAL_THIS);
   }
 
   @Override
@@ -137,7 +137,7 @@ class GlobalNamespace
   }
 
   @Override
-  public StaticScope<JSType> getScope(Name slot) {
+  public StaticTypedScope<TypeI> getScope(Name slot) {
     return this;
   }
 
@@ -259,21 +259,11 @@ class GlobalNamespace
    * @return Whether the name reference is a global variable reference
    */
   private boolean isGlobalVarReference(String name, Scope s) {
-    Scope.Var v = s.getVar(name);
+    Var v = s.getVar(name);
     if (v == null && externsScope != null) {
       v = externsScope.getVar(name);
     }
     return v != null && !v.isLocal();
-  }
-
-  /**
-   * Gets whether a scope is the global scope.
-   *
-   * @param s A scope
-   * @return Whether the scope is the global scope
-   */
-  private static boolean isGlobalScope(Scope s) {
-    return s.getParent() == null;
   }
 
   // -------------------------------------------------------------------------
@@ -420,7 +410,7 @@ class GlobalNamespace
       }
 
       if (isSet) {
-        if (isGlobalScope(scope)) {
+        if (scope.isGlobal()) {
           handleSetFromGlobal(module, scope, n, parent, name, isPropAssign, type);
         } else {
           handleSetFromLocal(module, scope, n, parent, name);
@@ -565,7 +555,7 @@ class GlobalNamespace
             currentPreOrderIndex++);
         nameObj.addRef(get);
         Ref.markTwins(set, get);
-      } else if (isTypeDeclaration(n, parent)) {
+      } else if (isTypeDeclaration(n)) {
         // Names with a @constructor or @enum annotation are always collapsed
         nameObj.setDeclaredType();
       }
@@ -581,7 +571,7 @@ class GlobalNamespace
      * @return Whether the set operation is either a constructor or enum
      *     declaration
      */
-    private boolean isTypeDeclaration(Node n, Node parent) {
+    private boolean isTypeDeclaration(Node n) {
       Node valueNode = NodeUtil.getRValueOfLValue(n);
       JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
       // Heed the annotations only if they're sensibly used.
@@ -640,6 +630,7 @@ class GlobalNamespace
       Ref.Type type = Ref.Type.DIRECT_GET;
       if (parent != null) {
         switch (parent.getType()) {
+          case Token.EXPR_RESULT:
           case Token.IF:
           case Token.INSTANCEOF:
           case Token.TYPEOF:
@@ -660,9 +651,7 @@ class GlobalNamespace
             }
             break;
           case Token.NEW:
-            type = n == parent.getFirstChild()
-                   ? Ref.Type.DIRECT_GET
-                   : Ref.Type.ALIASING_GET;
+            type = n == parent.getFirstChild() ? Ref.Type.DIRECT_GET : Ref.Type.ALIASING_GET;
             break;
           case Token.OR:
           case Token.AND:
@@ -703,10 +692,7 @@ class GlobalNamespace
 
       // Look for calls to goog.addSingletonGetter calls.
       String className = convention.getSingletonGetterClassName(callNode);
-      if (className != null) {
-        return true;
-      }
-      return false;
+      return className != null;
     }
 
     /**
@@ -886,7 +872,7 @@ class GlobalNamespace
    * correspond to JavaScript objects whose properties we should consider
    * collapsing.
    */
-  static class Name implements StaticSlot<JSType> {
+  static class Name implements StaticTypedSlot<TypeI> {
     enum Type {
       OBJECTLIT,
       FUNCTION,
@@ -907,9 +893,10 @@ class GlobalNamespace
 
     Type type;
     private boolean declaredType = false;
-    private boolean hasDeclaredTypeDescendant = false;
+    private boolean isDeclared = false;
     int globalSets = 0;
     int localSets = 0;
+    int localSetsWithNoCollapse = 0;
     int aliasingGets = 0;
     int totalGets = 0;
     int callGets = 0;
@@ -958,12 +945,13 @@ class GlobalNamespace
     }
 
     @Override
-    public JSType getType() {
+    public TypeI getType() {
       return null;
     }
 
     void addRef(Ref ref) {
       addRefInternal(ref);
+      JSDocInfo info;
       switch (ref.type) {
         case SET_FROM_GLOBAL:
           if (declaration == null) {
@@ -974,6 +962,11 @@ class GlobalNamespace
           break;
         case SET_FROM_LOCAL:
           localSets++;
+          info = ref.getNode() == null ? null :
+              NodeUtil.getBestJSDocInfo(ref.getNode());
+          if (info != null && info.isNoCollapse()) {
+            localSetsWithNoCollapse++;
+          }
           break;
         case PROTOTYPE_GET:
         case DIRECT_GET:
@@ -1009,12 +1002,18 @@ class GlobalNamespace
           }
         }
 
+        JSDocInfo info;
         switch (ref.type) {
           case SET_FROM_GLOBAL:
             globalSets--;
             break;
           case SET_FROM_LOCAL:
             localSets--;
+            info = ref.getNode() == null ? null :
+                NodeUtil.getBestJSDocInfo(ref.getNode());
+            if (info != null && info.isNoCollapse()) {
+              localSetsWithNoCollapse--;
+            }
             break;
           case PROTOTYPE_GET:
           case DIRECT_GET:
@@ -1043,7 +1042,7 @@ class GlobalNamespace
 
     void addRefInternal(Ref ref) {
       if (refs == null) {
-        refs = Lists.newArrayList();
+        refs = new ArrayList<>();
       }
       refs.add(ref);
     }
@@ -1074,10 +1073,23 @@ class GlobalNamespace
       return false;
     }
 
+    boolean isCollapsingExplicitlyDenied() {
+      if (docInfo == null) {
+        Ref ref = getDeclaration();
+        if (ref != null) {
+          docInfo = getDocInfoForDeclaration(ref);
+        }
+      }
+
+      return docInfo != null && docInfo.isNoCollapse();
+    }
+
     boolean canCollapse() {
-      return !inExterns && !isGetOrSetDefinition() && (declaredType ||
+      return !inExterns && !isGetOrSetDefinition() &&
+          !isCollapsingExplicitlyDenied() &&
+          (declaredType ||
           (parent == null || parent.canCollapseUnannotatedChildNames()) &&
-          (globalSets > 0 || localSets > 0) &&
+          (globalSets > 0 || localSets > 0) && localSetsWithNoCollapse == 0 &&
           deleteProps == 0);
     }
 
@@ -1096,6 +1108,10 @@ class GlobalNamespace
       // it's probably not worth the effort.
       Preconditions.checkNotNull(declaration);
       if (declaration.getTwin() != null) {
+        return false;
+      }
+
+      if (isCollapsingExplicitlyDenied()) {
         return false;
       }
 
@@ -1119,23 +1135,33 @@ class GlobalNamespace
 
     /** Whether this is an object literal that needs to keep its keys. */
     boolean shouldKeepKeys() {
-      return type == Type.OBJECTLIT && aliasingGets > 0;
+      return type == Type.OBJECTLIT &&
+          (aliasingGets > 0 || isCollapsingExplicitlyDenied());
     }
 
     boolean needsToBeStubbed() {
-      return globalSets == 0 && localSets > 0;
+      return globalSets == 0 && localSets > 0 && localSetsWithNoCollapse == 0 &&
+          !isCollapsingExplicitlyDenied();
     }
 
     void setDeclaredType() {
       declaredType = true;
       for (Name ancestor = parent; ancestor != null;
            ancestor = ancestor.parent) {
-        ancestor.hasDeclaredTypeDescendant = true;
+        ancestor.isDeclared = true;
       }
     }
 
     boolean isDeclaredType() {
       return declaredType;
+    }
+
+    boolean isConstructor() {
+      Node declNode = declaration.node;
+      Node rvalueNode = NodeUtil.getRValueOfLValue(declNode);
+      JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(declNode);
+      return rvalueNode != null && rvalueNode.isFunction()
+          && jsdoc != null && jsdoc.isConstructor();
     }
 
     /**
@@ -1146,8 +1172,8 @@ class GlobalNamespace
      * For example, if foo.bar.DomHelper is a class, then foo and foo.bar are
      * considered namespaces.
      */
-    boolean isNamespace() {
-      return hasDeclaredTypeDescendant && type == Type.OBJECTLIT;
+    boolean isNamespaceObjectLit() {
+      return isDeclared && type == Type.OBJECTLIT;
     }
 
     /**
@@ -1175,6 +1201,10 @@ class GlobalNamespace
     private static JSDocInfo getDocInfoForDeclaration(Ref ref) {
       if (ref.node != null) {
         Node refParent = ref.node.getParent();
+        if (refParent == null) {
+          // May happen when inlineAliases removes refs from the AST.
+          return null;
+        }
         switch (refParent.getType()) {
           case Token.FUNCTION:
           case Token.ASSIGN:
@@ -1182,6 +1212,8 @@ class GlobalNamespace
           case Token.VAR:
             return ref.node == refParent.getFirstChild() ?
                 refParent.getJSDocInfo() : ref.node.getJSDocInfo();
+          case Token.OBJECTLIT:
+            return ref.node.getJSDocInfo();
         }
       }
 
@@ -1195,7 +1227,7 @@ class GlobalNamespace
    * A global name reference. Contains references to the relevant parse tree
    * node and its ancestors that may be affected.
    */
-  static class Ref implements StaticReference<JSType> {
+  static class Ref implements StaticTypedRef<TypeI> {
 
     // Note: we are more aggressive about collapsing @enum and @constructor
     // declarations than implied here, see Name#canCollapse
@@ -1269,16 +1301,12 @@ class GlobalNamespace
     }
 
     @Override
-    public StaticSlot<JSType> getSymbol() {
+    public StaticTypedSlot<TypeI> getSymbol() {
       return name;
     }
 
     JSModule getModule() {
       return module;
-    }
-
-    String getSourceName() {
-      return source == null ? "" : source.getName();
     }
 
     Ref getTwin() {
@@ -1308,6 +1336,11 @@ class GlobalNamespace
 
     static Ref createRefForTesting(Type type) {
       return new Ref(type, -1);
+    }
+
+    @Override
+    public String toString() {
+      return node.toString();
     }
   }
 
@@ -1341,7 +1374,7 @@ class GlobalNamespace
     @Override public void process(Node externs, Node root) {
       GlobalNamespace namespace = new GlobalNamespace(compiler, externs, root);
 
-      Set<String> currentSymbols = Sets.newTreeSet();
+      Set<String> currentSymbols = new TreeSet<>();
       for (String name : namespace.getNameIndex().keySet()) {
         if (isInterestingSymbol.apply(name)) {
           currentSymbols.add(name);
@@ -1355,13 +1388,13 @@ class GlobalNamespace
 
       for (String sym : currentSymbols) {
         if (!previousSymbolsInTree.contains(sym)) {
-          stream.println(String.format("%s: Added by %s", sym, passName));
+          stream.printf("%s: Added by %s%n", sym, passName);
         }
       }
 
       for (String sym : previousSymbolsInTree) {
         if (!currentSymbols.contains(sym)) {
-          stream.println(String.format("%s: Removed by %s", sym, passName));
+          stream.printf("%s: Removed by %s%n", sym, passName);
         }
       }
 

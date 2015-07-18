@@ -44,14 +44,16 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.U2U_CONSTRUCTOR_TY
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.javascript.rhino.ErrorReporter;
+import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeI;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -63,7 +65,7 @@ import java.util.Set;
  * actual NAME node containing the parsed argument list (annotated with
  * JSDOC_TYPE_PROP's for the compile-time type of each argument.
  */
-public class FunctionType extends PrototypeObjectType {
+public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
   private static final long serialVersionUID = 1L;
 
   private enum Kind {
@@ -353,7 +355,8 @@ public class FunctionType extends PrototypeObjectType {
     if (prototypeSlot == null) {
       return super.getOwnPropertyNames();
     } else {
-      Set<String> names = Sets.newHashSet("prototype");
+      Set<String> names = new HashSet<>();
+      names.add("prototype");
       names.addAll(super.getOwnPropertyNames());
       return names;
     }
@@ -494,7 +497,7 @@ public class FunctionType extends PrototypeObjectType {
   public Iterable<ObjectType> getAllImplementedInterfaces() {
     // Store them in a linked hash set, so that the compile job is
     // deterministic.
-    Set<ObjectType> interfaces = Sets.newLinkedHashSet();
+    Set<ObjectType> interfaces = new LinkedHashSet<>();
 
     for (ObjectType type : getImplementedInterfaces()) {
       addRelatedInterfaces(type, interfaces);
@@ -521,14 +524,18 @@ public class FunctionType extends PrototypeObjectType {
 
   /** Returns interfaces implemented directly by a class or its superclass. */
   public Iterable<ObjectType> getImplementedInterfaces() {
-    FunctionType superCtor = isConstructor() ?
-        getSuperClassConstructor() : null;
+    FunctionType superCtor =
+        isConstructor() ? getSuperClassConstructor() : null;
     if (superCtor == null) {
       return implementedInterfaces;
-    } else {
-      return Iterables.concat(
-          implementedInterfaces, superCtor.getImplementedInterfaces());
     }
+    ImmutableList.Builder<ObjectType> builder = ImmutableList.builder();
+    builder.addAll(implementedInterfaces);
+    while (superCtor != null) {
+      builder.addAll(superCtor.implementedInterfaces);
+      superCtor = superCtor.getSuperClassConstructor();
+    }
+    return builder.build();
   }
 
   /** Returns interfaces directly implemented by the class. */
@@ -557,7 +564,7 @@ public class FunctionType extends PrototypeObjectType {
   public Iterable<ObjectType> getAllExtendedInterfaces() {
     // Store them in a linked hash set, so that the compile job is
     // deterministic.
-    Set<ObjectType> extendedInterfaces = Sets.newLinkedHashSet();
+    Set<ObjectType> extendedInterfaces = new LinkedHashSet<>();
 
     for (ObjectType interfaceType : getExtendedInterfaces()) {
       addRelatedExtendedInterfaces(interfaceType, extendedInterfaces);
@@ -625,7 +632,7 @@ public class FunctionType extends PrototypeObjectType {
 
         defineDeclaredProperty(name,
             new FunctionBuilder(registry)
-            .withParams(builder)
+            .withParamsNode(builder.build())
             .withReturnType(getReturnType())
             .withTemplateKeys(getTemplateTypeMap().getTemplateKeys())
             .build(),
@@ -1003,8 +1010,8 @@ public class FunctionType extends PrototypeObjectType {
       paramType = paramType.toMaybeUnionType().getRestrictedUnion(
           registry.getNativeType(JSTypeNative.VOID_TYPE));
     }
-    builder.append("...[").append(
-        paramType.toStringHelper(forAnnotations)).append("]");
+    builder.append("...").append(
+        paramType.toStringHelper(forAnnotations));
   }
 
   /** Gets the string representation of an optional param. */
@@ -1079,6 +1086,7 @@ public class FunctionType extends PrototypeObjectType {
    * @throws IllegalStateException if this function is not a constructor
    *         (see {@link #isConstructor()}).
    */
+  @Override
   public ObjectType getInstanceType() {
     Preconditions.checkState(hasInstanceType());
     return typeOfThis.toObjectType();
@@ -1111,6 +1119,7 @@ public class FunctionType extends PrototypeObjectType {
   /**
    * Gets the source node or null if this is an unknown function.
    */
+  @Override
   public Node getSource() {
     return source;
   }
@@ -1118,6 +1127,7 @@ public class FunctionType extends PrototypeObjectType {
   /**
    * Sets the source node.
    */
+  @Override
   public void setSource(Node source) {
     if (prototypeSlot != null) {
       // NOTE(bashir): On one hand when source is null we want to drop any
@@ -1136,7 +1146,7 @@ public class FunctionType extends PrototypeObjectType {
   /** Adds a type to the list of subtypes for this type. */
   private void addSubType(FunctionType subType) {
     if (subTypes == null) {
-      subTypes = Lists.newArrayList();
+      subTypes = new ArrayList<>();
     }
     subTypes.add(subType);
   }
@@ -1167,6 +1177,7 @@ public class FunctionType extends PrototypeObjectType {
    * for constructor functions, and may be null. This allows a downward
    * traversal of the subtype graph.
    */
+  @Override
   public List<FunctionType> getSubTypes() {
     return subTypes;
   }
@@ -1177,7 +1188,7 @@ public class FunctionType extends PrototypeObjectType {
   }
 
   @Override
-  JSType resolveInternal(ErrorReporter t, StaticScope<JSType> scope) {
+  JSType resolveInternal(ErrorReporter t, StaticTypedScope<JSType> scope) {
     setResolvedTypeInternal(this);
 
     call = (ArrowType) safeResolve(call, t, scope);
@@ -1232,7 +1243,7 @@ public class FunctionType extends PrototypeObjectType {
   private ImmutableList<ObjectType> resolveTypeListHelper(
       ImmutableList<ObjectType> list,
       ErrorReporter t,
-      StaticScope<JSType> scope) {
+      StaticTypedScope<JSType> scope) {
     boolean changed = false;
     ImmutableList.Builder<ObjectType> resolvedList =
         ImmutableList.builder();
@@ -1286,7 +1297,7 @@ public class FunctionType extends PrototypeObjectType {
   }
 
   /** Create a new constructor with the parameters and return type stripped. */
-  public FunctionType cloneWithoutArrowType() {
+  public FunctionType forgetParameterAndReturnTypes() {
     FunctionType result = new FunctionType(
         registry, getReferenceName(), source,
         registry.createArrowType(null, null), getInstanceType(),
@@ -1300,5 +1311,27 @@ public class FunctionType extends PrototypeObjectType {
     return getTemplateTypeMap().numUnfilledTemplateKeys() > 0
         || typeOfThis.hasAnyTemplateTypes()
         || call.hasAnyTemplateTypes();
+  }
+
+  @Override
+  public TypeI convertMethodToFunction() {
+    List<JSType> paramTypes = new ArrayList<>();
+    paramTypes.add(getTypeOfThis());
+    for (Node param : getParameters()) {
+      paramTypes.add(param.getJSType());
+    }
+    return registry.createFunctionTypeWithInstanceType(
+        registry.getNativeObjectType(JSTypeNative.UNKNOWN_TYPE),
+        getReturnType(),
+        paramTypes);
+
+  }
+
+  @Override
+  public boolean hasProperties() {
+    if (prototypeSlot != null) {
+      return true;
+    }
+    return !super.getOwnPropertyNames().isEmpty();
   }
 }

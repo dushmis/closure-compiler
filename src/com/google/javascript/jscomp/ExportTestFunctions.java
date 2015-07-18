@@ -88,7 +88,21 @@ class ExportTestFunctions implements CompilerPass {
             exportTestFunctionAsProperty(functionName, parent, n, grandparent);
           }
         }
+      } else if (n.isObjectLit()
+          && isCallTargetQName(n.getParent(), "goog.testing.testSuite")) {
+        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
+          if (c.isStringKey() && !c.isQuotedString()) {
+            c.setQuotedString();
+            compiler.reportCodeChange();
+          }
+        }
       }
+    }
+
+    // TODO(johnlenz): move test suite declaration into the
+    // coding convention class.
+    private boolean isCallTargetQName(Node n, String qname) {
+      return (n.isCall() && n.getFirstChild().matchesQualifiedName(qname));
     }
 
     /**
@@ -120,16 +134,14 @@ class ExportTestFunctions implements CompilerPass {
   private void exportTestFunctionAsSymbol(String testFunctionName, Node node,
       Node scriptNode) {
 
-    Node exportCallTarget = NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(),
+    Node exportCallTarget = NodeUtil.newQName(compiler,
         exportSymbolFunction, node, testFunctionName);
     Node call = IR.call(exportCallTarget);
     if (exportCallTarget.isName()) {
       call.putBooleanProp(Node.FREE_CALL, true);
     }
     call.addChildToBack(IR.string(testFunctionName));
-    call.addChildToBack(NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(),
+    call.addChildToBack(NodeUtil.newQName(compiler,
         testFunctionName, node, testFunctionName));
 
     Node expression = IR.exprResult(call);
